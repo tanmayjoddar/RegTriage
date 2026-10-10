@@ -41,6 +41,10 @@ jobs:
         run: |
           bandit -c pyproject.toml -r src
 
+      - name: Run pip-audit on lockfile
+        run: |
+          pip-audit -r requirements.lock
+
       - name: Run Test Suite with Branch Coverage
         run: |
           pytest -v --cov=regtriage --cov-branch --cov-report=term-missing --cov-fail-under=90

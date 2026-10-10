@@ -875,3 +875,40 @@ Note: `logging.py` reached 100% here because the validation tests exercise
 the remaining branch.
 
 Slice 5 verdict: green, 124 passed + 2 skipped, coverage 96.15%.
+
+---
+
+## CI fix: broken lockfile install step (2026-10-10)
+
+Symptom: both GitHub CI runs failed in ~9s at "Install dependencies from
+lockfile"; all later steps skipped. Local code was green — the failure was
+packaging, not code.
+
+Root causes found (all in Slice 1 artifacts):
+1. `requirements.lock` used literal `\n` text (backslash + letter n) where
+   pip continuation lines (`\` + real newline) belong — 863 occurrences.
+   The generator script wrote `" \\n"` instead of `" \\\n"`. pip fails at
+   parse time, instantly. Fixed by byte-replacing with real continuations.
+2. Lockfile closure was incomplete: `bandit==1.9.4` needs `colorama` on
+   Windows, which was unpinned (found via `pip-audit -r`, which resolves
+   the full closure unlike `pip install --no-deps`). Closed via PyPI JSON
+   resolution across linux/win32/darwin x py3.11: exactly one gap.
+3. Hard-rule dev tools `pip-audit`, `pre-commit`, `detect-secrets` were in
+   neither `pyproject.toml` nor the lockfile. Added to both (28 new
+   closure entries, all hashes from PyPI JSON for every release file).
+4. `pip-audit` then reported 6 real CVEs in `setuptools==66.1.1`
+   (PYSEC-2025-49, PYSEC-2026-1918, PYSEC-2026-3447); upgraded pin to
+   84.0.0 (requires-python >=3.10, fits py3.11). Re-audit: clean.
+5. Added the missing `pip-audit -r requirements.lock` CI step (spec
+   requires CI to run bandit and pip-audit).
+
+Proof (all observed, not paraphrased):
+- Downloaded `cfgv`/`identify` wheels and compared sha256 against the new
+  lockfile entries: both match exactly.
+- `python -m pip_audit -r requirements.lock` -> `No known vulnerabilities
+  found`, exit 0.
+- Lockfile re-validated: 70 entries, alphabetical, every entry parses as a
+  PEP 508 requirement with >=1 sha256 hash.
+- Local 5 checks re-run after the fix: ruff check ok, ruff format ok
+  (29 files), mypy --strict ok (29 files), bandit ok (7 nosecs),
+  pytest 124 passed + 2 skipped, coverage 96.15%.
