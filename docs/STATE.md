@@ -9,6 +9,15 @@
   (6 CVEs fixed, re-audit clean), pip-audit step added to CI. Real output
   in docs/VERIFICATION_LOG.md under "CI fix".
   CI STATUS: run #3 (28a75f3) conclusion success — green.
+- Skipped tests (exact reasons, `-rs` output 2026-10-10):
+  - `tests/test_runner_integration.py:75`: "iverilog not installed" — YES,
+    Icarus missing. The real cocotb regression has never run anywhere.
+    Carried as NOT YET RUN BY A HUMAN (RUNBOOK entry when Slice 11 lands).
+  - `tests/test_tools.py:267`: "cannot create symlinks on this machine" —
+    NOT Icarus; Windows lacks symlink privilege here. Runs on Linux CI.
+- CI ADDED (uncommitted): `lockfile-install` job, matrix
+  ubuntu-latest/windows-latest, clean `python -m venv`, install with
+  `--require-hashes --no-deps`, smoke-imports key packages.
 - Remote: https://github.com/tanmayjoddar/RegTriage.git (branch master).
   History carries tanmayjoddar <tanmayjoddar17@gmail.com>.
 - What is done:

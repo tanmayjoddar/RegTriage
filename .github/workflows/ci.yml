@@ -48,3 +48,41 @@ jobs:
       - name: Run Test Suite with Branch Coverage
         run: |
           pytest -v --cov=regtriage --cov-branch --cov-report=term-missing --cov-fail-under=90
+
+  lockfile-install:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with:
+          python-version: "3.11"
+
+      - name: Install lockfile into clean venv with hashes (POSIX)
+        if: runner.os != 'Windows'
+        run: |
+          python -m venv .cleanvenv
+          .cleanvenv/bin/python -m pip install --upgrade pip
+          .cleanvenv/bin/python -m pip install --require-hashes --no-deps -r requirements.lock
+
+      - name: Install lockfile into clean venv with hashes (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          python -m venv .cleanvenv
+          .\.cleanvenv\Scripts\python.exe -m pip install --upgrade pip
+          .\.cleanvenv\Scripts\python.exe -m pip install --require-hashes --no-deps -r requirements.lock
+
+      - name: Smoke-import installed packages (POSIX)
+        if: runner.os != 'Windows'
+        run: .cleanvenv/bin/python -c "import anthropic, pydantic, typer, pytest, hypothesis, coverage, yaml, packaging"
+
+      - name: Smoke-import installed packages (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: .\.cleanvenv\Scripts\python.exe -c "import anthropic, pydantic, typer, pytest, hypothesis, coverage, yaml, packaging"
