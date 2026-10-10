@@ -1493,6 +1493,88 @@ Slice 10 verdict: green, 220 passed + 11 skipped, coverage 95.13%.
 
 ---
 
+## Slice 11: README, RUNBOOK, THREAT_MODEL, RESULTS stub, pre-commit (2026-10-10)
+
+New files: `README.md` (Mermaid diagram, quickstart, decisions, security,
+limitations, not-yet-run results table), `docs/RUNBOOK.md` (ordered exact
+commands, all human steps NOT YET RUN), `docs/THREAT_MODEL.md` (trust zones,
+8 threats + mitigations, out-of-scope), `docs/RESULTS.md` (stub stating no
+numbers exist by design), `.pre-commit-config.yaml` (detect-secrets +
+hygiene hooks), `.secrets.baseline` (8 findings, all test fixtures + the
+public pin SHA, awaiting human `detect-secrets audit`).
+Removed template leftovers (explicit, previously untracked, never shipped):
+index.html, package.json, tsconfig.json, vite.config.ts, metadata.json,
+.env.example, requirements.txt, src/App.tsx, src/main.tsx, src/index.css,
+src/regtriage.egg-info/.
+
+Mid-slice: `detect-secrets scan` run for real (8 findings reviewed one by
+one — all fake); baseline committed for the human audit step.
+Flake note: one full-suite run showed
+`test_default_factory_builds_sdk_client_without_network` FAILED, then passed
+alone and in two subsequent full runs. Cause not definitively identified
+(suspected transient Windows file locking); recorded here, not hidden.
+
+### `python -m ruff check src tests`
+```
+All checks passed!
+RUFF:0
+```
+
+### `python -m ruff format --check src tests`
+```
+57 files already formatted
+FMT:0
+```
+
+### `python -m mypy --strict src tests`
+```
+Success: no issues found in 57 source files
+MYPY:0
+```
+
+### `python -m bandit -c pyproject.toml -r src`
+(Bandit output below is verbatim except the trailing `[main] INFO` lines and
+the benign `[manager] WARNING: Test in comment` echoes, unchanged from
+Slice 2, which are omitted for length.)
+```
+Run started:2026-10-10 14:38:25.929014+00:00
+
+Test results:
+	No issues identified.
+
+Code scanned:
+	Total lines of code: 3318
+	Total lines skipped (#nosec): 0
+	Total potential issues skipped due to specifically being disabled (e.g., #nosec BXXX): 11
+
+Run metrics:
+	Total issues (by severity):
+		Undefined: 0
+		Low: 0
+		Medium: 0
+		High: 0
+	Total issues (by confidence):
+		Undefined: 0
+		Low: 0
+		Medium: 0
+		High: 0
+Files skipped (0):
+BANDIT:0
+```
+
+### `python -m pytest --cov=regtriage --cov-branch --cov-report=term-missing`
+(Docs-only slice: no new tests. Final state re-verified.)
+```
+TOTAL                                    1845     76    494     14    95%
+Required test coverage of 90.0% reached. Total coverage: 95.13%
+====================== 220 passed, 11 skipped in 36.82s ========================
+PYTEST_EXIT:0
+```
+
+Slice 11 verdict: green, 220 passed + 11 skipped, coverage 95.13%.
+
+---
+
 ## CI fix: broken lockfile install step (2026-10-10)
 
 Symptom: both GitHub CI runs failed in ~9s at "Install dependencies from

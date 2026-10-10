@@ -470,3 +470,39 @@ The cut order listed UVM/Verilator first because cocotb covers the primary regre
 
 **Limitation:**
 These are still *sample* parsers over hand-written fixtures, not proofs against real VCS/Xcelium/Questa logs, whose formats differ in details (timestamps, multi-line reports, tool banners). The fixtures document the covered subset; anything outside them is untested by construction.
+
+---
+
+## Slice 11: README, RUNBOOK, THREAT_MODEL, RESULTS stub, pre-commit
+
+### 1. Why does the README show a "not yet run" results table instead of omitting results?
+**Answer:**
+An empty section invites the reader to assume results exist elsewhere; a table full of "not yet run" states the truth structurally — the eval was built and unit-tested with shims, but no baseline sim, mutant, or LLM arm has ever executed. Since README tables must be generated from `eval/results.json` (which does not exist), the placeholder is the only honest content, and it links the exact commands that would replace it. Never hand-writing metrics is a project rule, and the placeholder is how the rule stays visible.
+
+**Limitation:**
+A portfolio reader skimming the README sees a project with no results, which undersells the finished harness. That is the price of the no-fabrication rule — I would rather defend an empty table than explain a filled one.
+
+### 2. Why does every RUNBOOK/INFRA command carry its own NOT YET RUN marker instead of one global disclaimer?
+**Answer:**
+A global disclaimer lets individual steps feel "probably done" — per-command markers force the operator (and the interviewer) to treat each step as unverified until checked off. Copy-paste execution of infrastructure commands is where production incidents come from; the markers make the checklist auditable line by line. When a human runs a step, they delete that marker in the same commit that proves it.
+
+**Limitation:**
+Markers rot: after months, nobody remembers which were verified, and a partially-run list is worse than a clean one if edits drop markers accidentally. The discipline only works if marker removal is enforced in review — a process guarantee, not a technical one.
+
+### 3. Why commit a `.secrets.baseline` containing 8 findings instead of cleaning the fixtures?
+**Answer:**
+The findings are provably fake: test keys (`sk-ant-testkey...`), fixture bearer tokens, and the public upstream pin SHA. Rewriting fixtures to dodge the scanner would weaken the tests (the redactor tests *need* realistic secrets to prove redaction). The baseline workflow exists exactly for this: record known-fakes so the hook fails only on *new* secrets. The required human step (`detect-secrets audit`) is in the RUNBOOK rather than skipped, because me marking my own secrets safe deserves a second pair of eyes.
+
+**Limitation:**
+Until that audit runs, `pre-commit run --all-files` fails on the unaudited baseline — the secrets gate is installed but not yet armed. An unaudited baseline also trains developers to ignore the hook's output ("oh, those are the known ones"), which is the failure mode the tool is supposed to prevent.
+
+### 4. Why delete the template leftovers in Slice 11 instead of at the start?
+**Answer:**
+The instructions forbade silent deletion and demanded a file-by-file account. Early deletion would have risked breaking an unknown dependency (the template's `package.json`/vite setup was unrelated, but I verified that by inspection over time, not by assumption). Deleting now — with each file named in the commit, the STATE plan, and this answer — leaves an auditable trail: nothing vanished, everything was declared.
+
+**Limitation:**
+The leftovers sat in the working tree (untracked, never shipped) for the whole project, so any `git status` during development showed noise, and the shipped ZIP originally contained a confusing frontend/backend mix. Earlier removal with an explicit note would have been equally compliant and less messy — Slice 11 was chosen only because the plan said so.
+
+### 5. What is the single weakest claim in this repo, and how would you verify it?
+**Answer:**
+"Weakest" by consequence of being wrong: the eval's three-arm comparison is architecturally complete but has never executed — not the baseline, not one mutant, not one LLM call. If the harness has a design bug (e.g., the first-cluster simplification systematically misattributes multi-cluster kills), every future number is suspect and nothing in the suite would catch it, because all eval tests use stubs by necessity. Verification is one RUNBOOK section: clone, pin, baseline green, 30 mutants, real key — the first real `results.json` either confirms the design or exposes it. Until then, the entire eval chapter is tested scaffolding, and I present it as exactly that.
