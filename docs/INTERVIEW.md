@@ -275,3 +275,42 @@ The read tools (Slice 4) decode with `errors="replace"`, so the quote the agent 
 
 **Limitation:**
 Two engineers editing either module could change the rule in one place and break the contract silently — the test catches it, but only if the suite runs. A single shared `decode_log_bytes()` helper would enforce it structurally; I left the duplication because each module is currently small and the cross-pointing comments plus the test make drift loud rather than silent.
+
+---
+
+## Slice 6: agent loop, clients, redaction, audit, injection tests
+
+### 1. Why is the LLM client a Protocol with Anthropic and Replay implementations instead of calling the SDK directly?
+**Answer:**
+Dependency inversion: `triage_cluster` depends only on the `LlmClient` Protocol (one method, SDK-agnostic types), so unit tests drive the entire loop — budgets, retries, forcing, redaction — through `ReplayClient` with scripted turns, deterministically and with zero network. `AnthropicClient` is a thin translator at the boundary, tested separately with a recording fake for the SDK. If we ever switch model vendors, only a new translator is needed; the loop, with all its safety logic, does not change. Mypy checks the structural match at every call site, so the seam is type-safe without inheritance.
+
+**Limitation:**
+Replay scripts assert exact turn sequences, making the tests brittle to loop changes — reordering two loop operations breaks tests even when behavior is equally correct. And ReplayClient proves the loop logic, not the wire format: a real-API incompatibility (e.g., a renamed SDK parameter) would pass all 31 agent tests and fail only against the live API, which is NOT YET RUN BY A HUMAN.
+
+### 2. Why does redaction apply to tool outputs too, even though it can break citations?
+**Answer:**
+The spec mandates it ("redaction applies to everything sent to the LLM, not only logs") because sim logs routinely contain live secrets — our own fixture log carries an `sk-ant-...` key and an email, and the test proves both arrive at the model redacted. The single egress choke point is the loop: initial failure text, every tool result, and every tool/feedback error message pass through `SecretRedactor` before embedding; only the static system prompt and our own fixed strings skip it. The audit log records the redacted-as-sent payloads, so it never becomes a secret store either.
+
+**Limitation:**
+A quote spanning a redacted secret cannot validate — the agent cites `[REDACTED_EMAIL]`, the validator searches raw bytes, and the citation fails. The agent then burns a retry and may end `unverified` on evidence that was *true but unquotable*. Privacy wins over citation completeness by design, but on secret-dense logs this could systematically depress verified rates — the Slice 8 harness should measure it.
+
+### 3. Why force `submit_diagnosis` with `tool_choice` at the step cap instead of just stopping?
+**Answer:**
+Stopping at the cap returns nothing usable — eight tool calls of investigation evaporate. Forcing `{"type": "tool", "name": "submit_diagnosis"}` converts sunk cost into a best-effort answer: the model must synthesize whatever it gathered into the schema, and whatever it cites still goes through the validator (bad citations → `unverified` with reasons, never silent acceptance). If the model defies even the forced choice, the loop returns `failed` rather than looping forever — termination is structural (API-call ceiling), never dependent on model cooperation.
+
+**Limitation:**
+A forced submission is lower quality almost by definition — the model ran out of budget, so the diagnosis is a rush job. There is no quality gate distinguishing "submitted early with confidence" from "submitted under duress"; both flow to the same validator. A `forced: true` marker on the Diagnosis would let reports discount pressured answers, and I did not add one.
+
+### 4. Why does the loop catch `Exception` around tool dispatch, and what does that risk?
+**Answer:**
+Every domain error the tools can raise (`SandboxViolationError` for attacks, `ParsingError` for missing files, `ExecutionError` for git failures, pydantic errors for bad arguments) must become an `is_error` tool result — the model's feedback channel — rather than a crash that aborts the whole cluster triage. Catching `Exception` (not `BaseException`, so `KeyboardInterrupt`/`SystemExit` still propagate) is the only way to guarantee the loop is total over an open-ended set of tool failures, including ones added later.
+
+**Limitation:**
+A broad catch also swallows programming bugs (e.g., a `TypeError` from my own dispatcher) and reframes them as model-facing tool errors, which could mask real defects as "the tool failed". The mitigation is branch coverage: every dispatcher path is unit-tested, so a `TypeError` would fail the suite before reaching the loop — but a bug in a path the tests miss would indeed hide behind `is_error`.
+
+### 5. Why does the audit log store redacted payloads, and why 0600 with per-write open/close?
+**Answer:**
+The audit log exists for incident forensics ("what did we send the model?"), and storing raw payloads would make it a secrets database — so it stores exactly what was sent, which is already redacted. Mode 0600 keeps it owner-only for defense in depth (belt and suspenders with redaction). Each `append` opens with `O_APPEND`, writes, and closes, so concurrent cluster triages cannot interleave partial lines and a crashed process loses at most one record; there is no long-held handle to leak across the agent loop's lifetime.
+
+**Limitation:**
+Redacted audit records cannot reproduce the exact model input for debugging a subtle misdiagnosis — the engineer sees `[REDACTED_ANTHROPIC_KEY]` where the model saw the same token, which is fine, but genuinely cannot tell *which* key or email was present. Full-fidelity debugging requires the original logs, which the audit deliberately does not duplicate. Timestamps are local-clock UTC with no monotonic guarantee, so ordering concurrent-cluster records precisely is best-effort.

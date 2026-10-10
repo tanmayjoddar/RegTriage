@@ -878,6 +878,154 @@ Slice 5 verdict: green, 124 passed + 2 skipped, coverage 96.15%.
 
 ---
 
+## Slice 6: agent loop, clients, redaction, audit, injection tests (2026-10-10)
+
+New files: `src/regtriage/agent/protocol.py` (SDK-agnostic message/client
+types), `src/regtriage/agent/clients.py` (AnthropicClient + ReplayClient),
+`src/regtriage/agent/diagnosis.py` (SuspectedFile + Diagnosis, incl.
+`failed_evidence`), `src/regtriage/agent/tooling.py` (5 tool schemas;
+submit schema generated from the Diagnosis model; ToolRuntime dispatcher),
+`src/regtriage/agent/loop.py` (triage_cluster: max 8 tool calls, token/API
+ceilings, forced tool_choice at step cap, 3 submit attempts, is_error
+results, untrusted-data wrapping, egress redaction, audit logging,
+offline mode), `src/regtriage/agent/__init__.py`,
+`src/regtriage/audit.py` (append-only JSONL, 0600),
+`tests/test_agent.py` (31 tests), `tests/test_audit.py` (4 tests).
+
+Mid-slice fixes: per-branch arg names for mypy; list-variance annotation;
+`datetime.UTC`; fake-SDK response/error delegation; `_triage`/`_bad_diag`/
+`_empty_request` helpers for line length; real-SDK factory test (no network
+at construction); coverage-driven tests for budget-exhaustion, extra
+submits, never-parsed submits, git/grep dispatch (loop.py + tooling.py now
+100%).
+
+### `python -m ruff check src tests`
+```
+All checks passed!
+RUFF:0
+```
+
+### `python -m ruff format --check src tests`
+```
+38 files already formatted
+FMT:0
+```
+
+### `python -m mypy --strict src tests`
+```
+Success: no issues found in 38 source files
+MYPY:0
+```
+
+### `python -m bandit -c pyproject.toml -r src`
+(Bandit output below is verbatim except the trailing `[main] INFO` lines and
+the benign `[manager] WARNING: Test in comment` echoes, unchanged from
+Slice 2, which are omitted for length.)
+```
+Run started:2026-10-10 13:58:51.800206+00:00
+
+Test results:
+	No issues identified.
+
+Code scanned:
+	Total lines of code: 1920
+	Total lines skipped (#nosec): 0
+	Total potential issues skipped due to specifically being disabled (e.g., #nosec BXXX): 7
+
+Run metrics:
+	Total issues (by severity):
+		Undefined: 0
+		Low: 0
+		Medium: 0
+		High: 0
+	Total issues (by confidence):
+		Undefined: 0
+		Low: 0
+		Medium: 0
+		High: 0
+Files skipped (0):
+BANDIT:0
+```
+
+### `python -m pytest --cov=regtriage --cov-branch --cov-report=term-missing`
+(161 items collected; earlier suites pass unchanged — only the 35 new
+agent/audit lines are reproduced here verbatim, plus the full table.)
+```
+tests/test_agent.py::test_happy_path_verified PASSED                     [  0%]
+tests/test_agent.py::test_secrets_redacted_before_llm PASSED             [  1%]
+tests/test_agent.py::test_injection_wrapped_as_data PASSED               [  1%]
+tests/test_agent.py::test_validation_retry_then_verified PASSED          [  2%]
+tests/test_agent.py::test_retries_exhausted_yields_unverified PASSED     [  3%]
+tests/test_agent.py::test_malformed_submit_recovers PASSED               [  3%]
+tests/test_agent.py::test_never_parsed_submit_yields_unverified PASSED   [  4%]
+tests/test_agent.py::test_tool_budget_exhausted_mid_turn PASSED          [  4%]
+tests/test_agent.py::test_extra_submit_ignored PASSED                    [  5%]
+tests/test_agent.py::test_tool_runtime_git_and_grep PASSED               [  6%]
+tests/test_agent.py::test_step_cap_forces_submit PASSED                  [  6%]
+tests/test_agent.py::test_forced_submit_ignored_yields_failed PASSED     [  7%]
+tests/test_agent.py::test_token_ceiling_aborts PASSED                    [  8%]
+tests/test_agent.py::test_offline_logs_without_sending PASSED            [  8%]
+tests/test_agent.py::test_audit_records_turns_without_key PASSED         [  9%]
+tests/test_agent.py::test_unknown_tool_is_error_result PASSED            [  9%]
+tests/test_agent.py::test_missing_file_tool_error_recovers PASSED        [ 10%]
+tests/test_agent.py::test_text_only_stall_gets_nudge PASSED              [ 11%]
+tests/test_agent.py::test_exhausted_replay_aborts_failed PASSED          [ 11%]
+tests/test_agent.py::test_empty_tool_result_placeholder PASSED           [ 12%]
+tests/test_agent.py::test_diagnosis_schema_bounds PASSED                 [ 13%]
+tests/test_agent.py::test_tool_schemas_include_diagnosis_model PASSED    [ 13%]
+tests/test_agent.py::test_tool_runtime_unknown_tool PASSED               [ 14%]
+tests/test_agent.py::test_tool_runtime_rejects_bad_args PASSED           [ 14%]
+tests/test_agent.py::test_default_factory_builds_sdk_client_without_network PASSED [ 15%]
+tests/test_agent.py::test_anthropic_client_translates_and_forwards PASSED [ 16%]
+tests/test_agent.py::test_anthropic_client_tool_use_translation PASSED   [ 16%]
+tests/test_agent.py::test_anthropic_client_wraps_transport_errors PASSED [ 17%]
+tests/test_agent.py::test_anthropic_client_rejects_unknown_blocks PASSED [ 18%]
+tests/test_agent.py::test_anthropic_client_rejects_empty_key PASSED      [ 18%]
+tests/test_agent.py::test_api_key_never_in_requests_or_audit PASSED      [ 19%]
+tests/test_audit.py::test_append_writes_jsonl_records PASSED             [ 19%]
+tests/test_audit.py::test_creates_parent_dirs PASSED                     [ 20%]
+tests/test_audit.py::test_file_mode_is_owner_only SKIPPED (POSIX fil...) [ 21%]
+tests/test_audit.py::test_path_property PASSED                           [ 21%]
+
+Name                                    Stmts   Miss Branch BrPart  Cover   Missing
+-----------------------------------------------------------------------------------
+src\regtriage\__init__.py                   5      0      0      0   100%
+src\regtriage\agent\__init__.py             6      0      0      0   100%
+src\regtriage\agent\clients.py             55      0     12      0   100%
+src\regtriage\agent\diagnosis.py           19      0      0      0   100%
+src\regtriage\agent\loop.py               125      0     34      0   100%
+src\regtriage\agent\protocol.py            37      0      0      0   100%
+src\regtriage\agent\tooling.py             57      0      8      0   100%
+src\regtriage\audit.py                     22      0      0      0   100%
+src\regtriage\config.py                   139      1     52      4    97%   103, 155->157, 157->160, 255->254
+src\regtriage\errors.py                    91      0      0      0   100%
+src\regtriage\logging.py                   54      0      0      0   100%
+src\regtriage\parsing\__init__.py           3      0      0      0   100%
+src\regtriage\parsing\base.py              12      0      0      0   100%
+src\regtriage\parsing\cocotb.py            44      3     16      1    93%   42-43, 78
+src\regtriage\runner\__init__.py            3      0      0      0   100%
+src\regtriage\runner\executor.py           18      0      0      0   100%
+src\regtriage\runner\local.py              61     10     18      4    80%   30-36, 46, 72, 82
+src\regtriage\signature.py                 62      0     18      0   100%
+src\regtriage\tools\__init__.py             4      0      0      0   100%
+src\regtriage\tools\files.py               96      4     44      2    96%   158, 160, 166-167
+src\regtriage\tools\git.py                 68      1     22      1    98%   135
+src\regtriage\tools\sandbox.py             17      0      4      0   100%
+src\regtriage\validation\__init__.py        3      0      0      0   100%
+src\regtriage\validation\evidence.py       10      0      0      0   100%
+src\regtriage\validation\validator.py      60      3     18      1    95%   42-43, 95
+-----------------------------------------------------------------------------------
+TOTAL                                    1071     22    292     14    97%
+Required test coverage of 90.0% reached. Total coverage: 97.21%
+======================= 158 passed, 3 skipped in 19.66s ========================
+PYTEST_EXIT:0
+```
+
+Slice 6 verdict: green, 158 passed + 3 skipped, coverage 97.21%; the whole
+agent package and audit.py are at 100%.
+
+---
+
 ## CI fix: broken lockfile install step (2026-10-10)
 
 Symptom: both GitHub CI runs failed in ~9s at "Install dependencies from

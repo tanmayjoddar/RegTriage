@@ -1,44 +1,34 @@
 # RegTriage Run State (updated after every slice)
 
-- Last completed slice: 5 (evidence validator + tests)
-- CI FIX (2026-10-10, commit 28a75f3): GitHub CI failed on the
-  last two commits at "Install dependencies from lockfile" (~9s, packaging
-  failure, not code). Fixed: lockfile literal-`\n` continuations rewritten
-  (863x), closure completed (colorama), pip-audit/pre-commit/detect-secrets
-  added to pyproject + lockfile (28 entries), setuptools 66.1.1 -> 84.0.0
-  (6 CVEs fixed, re-audit clean), pip-audit step added to CI. Real output
-  in docs/VERIFICATION_LOG.md under "CI fix".
-  CI STATUS: run #3 (28a75f3) conclusion success — green.
-- Skipped tests (exact reasons, `-rs` output 2026-10-10):
-  - `tests/test_runner_integration.py:75`: "iverilog not installed" — YES,
-    Icarus missing. The real cocotb regression has never run anywhere.
-    Carried as NOT YET RUN BY A HUMAN (RUNBOOK entry when Slice 11 lands).
-  - `tests/test_tools.py:267`: "cannot create symlinks on this machine" —
-    NOT Icarus; Windows lacks symlink privilege here. Runs on Linux CI.
-- CI ADDED (uncommitted): `lockfile-install` job, matrix
-  ubuntu-latest/windows-latest, clean `python -m venv`, install with
-  `--require-hashes --no-deps`, smoke-imports key packages.
-- Remote: https://github.com/tanmayjoddar/RegTriage.git (branch master).
-  History carries tanmayjoddar <tanmayjoddar17@gmail.com>.
+- Last completed slice: 6 (agent loop, clients, redaction, audit, injection
+  tests)
 - What is done:
   - Slices 0, 2, 3, 4, 5 committed (e51b79e, 1de80f0, a5d2701, 22e06e8,
-    e950a79) plus docs push note (c7c025c).
-  - 124 passed + 2 skipped, coverage 96.15%. All 5 checks green locally.
-- Exact next step: Slice 6 — agent loop, ReplayClient, AnthropicClient,
-  redaction on egress, audit log, injection tests (see previous STATE for
-  the full file list). Then commit "slice 6: ...".
+    e950a79); CI fix 28a75f3; CI matrix job 57115b3 (run #5 success on
+    ubuntu AND windows); docs note 94ddefd (run #4 success).
+  - Slice 6: `src/regtriage/agent/` (protocol, AnthropicClient,
+    ReplayClient, Diagnosis + failed_evidence, tool schemas + ToolRuntime,
+    triage_cluster) and `src/regtriage/audit.py` (JSONL 0600). Tests:
+    31 agent + 4 audit, all via ReplayClient / recording fakes, no network.
+  - 158 passed + 3 skipped, coverage 97.21%; agent/* + audit.py at 100%.
+    All 5 checks green (bandit: 7 justified nosecs); log + INTERVIEW updated.
+- Exact next step: Slice 7 — reports + Slack + escaping. New:
+  `src/regtriage/report/` (JSON + Markdown generators escaping all
+  untrusted text; optional Slack webhook with URL from env only, escaped,
+  timeout). Tests incl. escaping adversarial cases; +5 INTERVIEW Q&A;
+  log entry; commit "slice 7: ...". (Slack webhook = cut candidate #2 if
+  budget forces it — build reports first, Slack second.)
 - Open issues:
-  - CI re-run after the lockfile fix NOT YET CONFIRMED GREEN (polling).
+  - Live Anthropic calls NEVER made; real wire format unverified by tests.
+  - Forced submissions carry no quality marker (see INTERVIEW slice 6 Q3).
   - `.pre-commit-config.yaml` with detect-secrets hook still to write
     (Slice 11 with docs).
-  - `.venv/` Linux-only; Windows box uses system Python 3.11.9. Clean Linux
-    install from requirements.lock --require-hashes now exercised BY CI
-    (no --require-hashes flag; hashes still verified by pip whenever
-    present in the file).
-  - cocotb+Icarus integration test never executed here; real sim run on
-    Linux NOT YET RUN BY A HUMAN. Real Anthropic calls never made here.
-  - Symlink-escape test skips on Windows; validator read-race + git.py
-    malformed-record guards uncovered — need Linux CI.
+  - `.venv/` Linux-only; Windows box uses system Python 3.11.9.
+  - cocotb+Icarus integration never executed; real sim on Linux NOT YET
+    RUN BY A HUMAN. Skips: "iverilog not installed",
+    "cannot create symlinks on this machine" (runs on Linux CI),
+    "POSIX file modes do not apply on this platform".
+  - RUNBOOK.md lands in Slice 11; until then human-only items live here.
   - Threshold default 0.75 unevaluated on real logs; revisit with Slice 8.
   - Template leftovers kept untouched and untracked. Planned removal in
     Slice 11 (explicit, not silent).
