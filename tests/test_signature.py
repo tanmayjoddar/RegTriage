@@ -1,7 +1,7 @@
 """Unit and property tests for signature normalization and clustering."""
 
 import pytest
-from hypothesis import given
+from hypothesis import given, settings
 from hypothesis import strategies as st
 from pydantic import ValidationError as PydanticValidationError
 
@@ -113,6 +113,9 @@ def test_cluster_model_rejects_empty_members() -> None:
         Cluster(cluster_id="cluster-001", signature="abc", members=[])
 
 
+# Property tests assert correctness, not speed: deadlines are disabled so
+# loaded CI runners cannot fail them on timing.
+@settings(deadline=None)  # no deadline flakes.
 @given(st.text(max_size=200))
 def test_normalize_is_idempotent(message: str) -> None:
     assert normalize_message(normalize_message(message)) == normalize_message(message)
@@ -137,12 +140,14 @@ def _canon(messages: list[str]) -> list[tuple[str, list[str]]]:
     )
 
 
+@settings(deadline=None)  # no deadline flakes.
 @given(st.lists(st.sampled_from(_POOL), min_size=0, max_size=10))
 def test_clustering_is_order_independent(messages: list[str]) -> None:
     assert _canon(list(messages)) == _canon(list(reversed(messages)))
     assert _canon(list(messages)) == _canon(sorted(messages))
 
 
+@settings(deadline=None)  # no deadline flakes.
 @given(st.lists(st.sampled_from(_POOL), min_size=0, max_size=10))
 def test_clustering_is_idempotent(messages: list[str]) -> None:
     failures = [_failure(f"t{i}", message) for i, message in enumerate(messages)]

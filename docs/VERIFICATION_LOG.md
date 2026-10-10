@@ -1575,6 +1575,26 @@ Slice 11 verdict: green, 220 passed + 11 skipped, coverage 95.13%.
 
 ---
 
+## CI fix 3: Linux repro + hypothesis deadlines (2026-10-10)
+
+Symptom: CI runs #11/#12/#13 failed in pytest on ubuntu while Windows was
+green — including #13 after the dash fix, so the shim was not (only) it.
+
+Reproduction (new capability: WSL Ubuntu on this box): built a CI-identical
+env (Python 3.11.17 via deadsnakes, lockfile `--require-hashes` install,
+exact pins incl. pytest 9.1.1/hypothesis 6.168.5) and ran the exact CI
+command. Result: 230 passed, 1 skipped, 97.95% — GREEN, twice in a row
+(~19s, matching CI's duration, so 19s is a full run, not an early abort).
+The failure does not reproduce deterministically; prime suspect is
+hypothesis per-example deadlines (200ms default) on loaded shared runners —
+the only stochastic failure mechanism in the suite.
+
+Hardening: `@settings(deadline=None)` on the 3 property tests (they assert
+correctness, not speed) with an explanatory comment. No behavior change;
+Windows suite re-verified green after the edit.
+
+---
+
 ## CI fix 2: dash-incompatible sbatch shim (2026-10-10)
 
 Symptom: CI runs #11 (slice 11) and #12 (audit commit) failed in the pytest

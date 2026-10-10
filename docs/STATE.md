@@ -23,5 +23,10 @@
 - CI FIX 2 (2026-10-10): runs #11/#12 failed in pytest on ubuntu only.
   Cause: `${@: -1}` bashism in sbatch shim vs dash. Fixed POSIX loop;
   shims validated under sh; pushed, polling CI.
+- CI FIX 3 (2026-10-10): run #13 STILL failed post-dash-fix. Built
+  CI-identical env in WSL (py3.11.17 + lockfile pins + exact CI command):
+  230 passed/1 skipped TWICE — cannot reproduce; suspect hypothesis
+  200ms deadlines on loaded runners. Hardened with deadline=None on the
+  3 property tests. Pushing + polling.
 - Open issues: live LLM/sim/eval/INFRA runs NOT YET RUN; manual CSV empty;
   threshold unevaluated; platform-gated skips for Linux CI.
