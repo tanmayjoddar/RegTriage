@@ -1575,6 +1575,29 @@ Slice 11 verdict: green, 220 passed + 11 skipped, coverage 95.13%.
 
 ---
 
+## CI fix 2: dash-incompatible sbatch shim (2026-10-10)
+
+Symptom: CI runs #11 (slice 11) and #12 (audit commit) failed in the pytest
+step on ubuntu (all lint/type/security/audit steps green; both
+lockfile-install jobs green). Local suite green.
+
+Root cause: the `sbatch` test shim used `${@: -1}` (last-argument
+expansion), which is a bashism — ubuntu `/bin/sh` is dash, which aborts on
+it. Every shim test therefore failed on Linux while skipping on Windows,
+where the bug was invisible. Fixed with a POSIX loop
+(`for arg in "$@"; do script="$arg"; done`); the other three shims were
+re-audited character by character (command substitution, arithmetic,
+`test`, grep/cut/tail — all POSIX, no `[[`, `local`, or `&>`).
+
+Proof: extracted the four shims from the test file and drove the exact
+happy-path flow under Git Bash `sh`: `sbatch --parsable` prints `42`,
+payload executes with `--output=`/`--error=` redirections (`sim-ok`
+lands in the file), `sacct` advances PENDING/PENDING/COMPLETED across
+three calls, `squeue`/`scancel` log correctly. Full POSIX audit recorded
+in the commit; dash itself is unavailable on this box (stated, not claimed).
+
+---
+
 ## CI fix: broken lockfile install step (2026-10-10)
 
 Symptom: both GitHub CI runs failed in ~9s at "Install dependencies from

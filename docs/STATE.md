@@ -20,5 +20,8 @@
   clean (one legit `pass` in killpg fallback). docs/COMPLETION_REPORT.md
   written: all rows done except E1 partial (baseline never run) + 12
   unverified claims listed harshly. NOTHING CUT — all slices 0,2-11 done.
+- CI FIX 2 (2026-10-10): runs #11/#12 failed in pytest on ubuntu only.
+  Cause: `${@: -1}` bashism in sbatch shim vs dash. Fixed POSIX loop;
+  shims validated under sh; pushed, polling CI.
 - Open issues: live LLM/sim/eval/INFRA runs NOT YET RUN; manual CSV empty;
   threshold unevaluated; platform-gated skips for Linux CI.

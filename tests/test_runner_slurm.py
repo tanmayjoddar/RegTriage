@@ -18,7 +18,8 @@ from regtriage.runner.slurm import render_batch_script
 SBATCH_SH = """#!/bin/sh
 echo "sbatch $@" >> "$SHIM_LOG/calls.log"
 if [ -n "$SHIM_SBATCH_FAIL" ]; then echo "submit failed" >&2; exit 1; fi
-script="${@: -1}"
+script=""
+for arg in "$@"; do script="$arg"; done
 out=$(grep '^#SBATCH --output=' "$script" | cut -d= -f2-)
 err=$(grep '^#SBATCH --error=' "$script" | cut -d= -f2-)
 cmd=$(grep -v '^#' "$script" | grep -v '^$' | tail -n 1)
