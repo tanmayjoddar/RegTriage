@@ -7,6 +7,15 @@ from collections.abc import Sequence
 from typing import Any
 
 _SECRET_PLACEHOLDER = "[REDACTED_SECRET]"  # nosec B105: redaction placeholder token, not a real password or secret.
+_JSON_SECRET_TOKEN = "[REDACTED_JSON_SECRET]"
+_PASSWORD_PHRASE_TOKEN = "[REDACTED_PASSWORD_PHRASE]"
+
+# Tokens whose replacement is not the token itself map to an explicit
+# substitution template here; every other token replaces the whole match.
+_SPECIAL_REPLACEMENTS: dict[str, str] = {
+    _JSON_SECRET_TOKEN: '"\\1": "[REDACTED_SECRET]"',
+    _PASSWORD_PHRASE_TOKEN: "password is [REDACTED_SECRET]",
+}
 
 _DEFAULT_REDACTION_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
     (
@@ -21,8 +30,35 @@ _DEFAULT_REDACTION_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
         re.compile(r"sk-ant-[a-zA-Z0-9_\-]{20,}", re.ASCII),
     ),
     (
+        "[REDACTED_AWS_KEY]",
+        re.compile(r"\bAKIA[0-9A-Z]{16}\b", re.ASCII),
+    ),
+    (
+        "[REDACTED_GITHUB_TOKEN]",
+        re.compile(r"\b(?:ghp_[A-Za-z0-9]{30,}|github_pat_[A-Za-z0-9_]+)\b", re.ASCII),
+    ),
+    (
+        "[REDACTED_SLACK_TOKEN]",
+        re.compile(r"\bxox[bpars]-[A-Za-z0-9-]+\b", re.ASCII),
+    ),
+    (
         "[REDACTED_BEARER_TOKEN]",
         re.compile(r"Bearer\s+[A-Za-z0-9\-._~+/]+=*", re.IGNORECASE),
+    ),
+    (
+        "[REDACTED_JWT]",
+        re.compile(r"\beyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\b", re.ASCII),
+    ),
+    (
+        _JSON_SECRET_TOKEN,
+        re.compile(
+            r'"((?:api[-_]?key|secret|token|password)[A-Za-z0-9_-]*)"\s*:\s*"[^"]+"',
+            re.IGNORECASE,
+        ),
+    ),
+    (
+        _PASSWORD_PHRASE_TOKEN,
+        re.compile(r"password\s+is\s+[A-Za-z0-9_.\-~+/=]{4,}", re.IGNORECASE),
     ),
     (
         _SECRET_PLACEHOLDER,
@@ -56,7 +92,10 @@ class SecretRedactor:
 
         result = text
         for token, pattern in self._patterns:
-            if token == _SECRET_PLACEHOLDER:
+            special = _SPECIAL_REPLACEMENTS.get(token)
+            if special is not None:
+                result = pattern.sub(special, result)
+            elif token == _SECRET_PLACEHOLDER:
                 result = pattern.sub(f"\\1={_SECRET_PLACEHOLDER}", result)
             else:
                 result = pattern.sub(token, result)
