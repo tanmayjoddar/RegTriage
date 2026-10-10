@@ -1,34 +1,35 @@
 # RegTriage Run State (updated after every slice)
 
-- Last completed slice: 6 (agent loop, clients, redaction, audit, injection
-  tests)
+- Last completed slice: 7 (reports + Slack + escaping)
 - What is done:
-  - Slices 0, 2, 3, 4, 5 committed (e51b79e, 1de80f0, a5d2701, 22e06e8,
-    e950a79); CI fix 28a75f3; CI matrix job 57115b3 (run #5 success on
-    ubuntu AND windows); docs note 94ddefd (run #4 success).
-  - Slice 6: `src/regtriage/agent/` (protocol, AnthropicClient,
-    ReplayClient, Diagnosis + failed_evidence, tool schemas + ToolRuntime,
-    triage_cluster) and `src/regtriage/audit.py` (JSONL 0600). Tests:
-    31 agent + 4 audit, all via ReplayClient / recording fakes, no network.
-  - 158 passed + 3 skipped, coverage 97.21%; agent/* + audit.py at 100%.
-    All 5 checks green (bandit: 7 justified nosecs); log + INTERVIEW updated.
-- Exact next step: Slice 7 — reports + Slack + escaping. New:
-  `src/regtriage/report/` (JSON + Markdown generators escaping all
-  untrusted text; optional Slack webhook with URL from env only, escaped,
-  timeout). Tests incl. escaping adversarial cases; +5 INTERVIEW Q&A;
-  log entry; commit "slice 7: ...". (Slack webhook = cut candidate #2 if
-  budget forces it — build reports first, Slack second.)
+  - Slices 0, 2-6 committed; CI fix + matrix job green (runs #3-5 success,
+    ubuntu AND windows, incl. --require-hashes installs).
+  - Slice 7: `src/regtriage/report/` (escape_markdown, build_json_report,
+    render_markdown, send_slack with https/loopback allowlist) and
+    `tests/test_report.py` (13 tests incl. localhost webhook stub).
+  - 171 passed + 3 skipped, coverage 97.43%; report/* at 100%.
+    All 5 checks green (bandit: 8 justified nosecs); log + INTERVIEW updated.
+- Exact next step: Slice 8 — eval harness (NEVER CUT). New: `eval/`
+  package (mutants, baseline, three arms, cost guard, results generator),
+  `src/regtriage/cli.py` (typer: run, report, eval, eval-report,
+  validate-config — CLI was listed in MODULES but assigned no slice; it
+  lands here where all subsystems exist), `eval/manual_triage.csv` +
+  timing script, generated `eval/results.json` + `docs/RESULTS.md`.
+  Requires choosing the pinned verilog-pcie commit SHA + verifying its
+  LICENSE (MIT-style, NOT taxi/CERN-OHL-S) — web research + RUNBOOK note.
+  +5 INTERVIEW Q&A; log entry; commit "slice 8: ...".
 - Open issues:
-  - Live Anthropic calls NEVER made; real wire format unverified by tests.
-  - Forced submissions carry no quality marker (see INTERVIEW slice 6 Q3).
+  - Live Anthropic calls NEVER made; forced-submit quality unmarked.
+  - Slack `<!here>`-style mentions not neutralized; no webhook retry.
+  - Proxy env vars could break localhost Slack tests (no no_proxy guard).
   - `.pre-commit-config.yaml` with detect-secrets hook still to write
     (Slice 11 with docs).
   - `.venv/` Linux-only; Windows box uses system Python 3.11.9.
   - cocotb+Icarus integration never executed; real sim on Linux NOT YET
     RUN BY A HUMAN. Skips: "iverilog not installed",
-    "cannot create symlinks on this machine" (runs on Linux CI),
+    "cannot create symlinks on this machine",
     "POSIX file modes do not apply on this platform".
   - RUNBOOK.md lands in Slice 11; until then human-only items live here.
-  - Threshold default 0.75 unevaluated on real logs; revisit with Slice 8.
+  - Threshold default 0.75 unevaluated on real logs; Slice 8 measures it.
   - Template leftovers kept untouched and untracked. Planned removal in
     Slice 11 (explicit, not silent).

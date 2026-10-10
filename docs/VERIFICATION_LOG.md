@@ -1026,6 +1026,131 @@ agent package and audit.py are at 100%.
 
 ---
 
+## Slice 7: reports + Slack + escaping (2026-10-10)
+
+New files: `src/regtriage/report/report.py` (escape_markdown,
+build_json_report, render_markdown with ragged-input guards),
+`src/regtriage/report/slack.py` (send_slack over stdlib urllib: SecretStr
+URL, https/loopback-http allowlist, timeout on every call, URL never in
+errors), `src/regtriage/report/__init__.py`, `tests/test_report.py`
+(13 tests; Slack tests run against a localhost HTTP stub, no mocks).
+
+Mid-slice fixes:
+- Test assertions checked escaped forms (`\#`), not raw substrings — the
+  escaper was right, the assertions were naive.
+- Bandit B310 (urlopen with variable URL): added a real scheme allowlist
+  plus `nosec B310` citing it.
+- Coverage-driven: ragged-input branches, 201-status, refused-connection,
+  https-gate, bad-timeout paths. report/* at 100%.
+
+### `python -m ruff check src tests`
+```
+All checks passed!
+RUFF:0
+```
+
+### `python -m ruff format --check src tests`
+```
+42 files already formatted
+FMT:0
+```
+
+### `python -m mypy --strict src tests`
+```
+Success: no issues found in 42 source files
+MYPY:0
+```
+
+### `python -m bandit -c pyproject.toml -r src`
+(Bandit output below is verbatim except the trailing `[main] INFO` lines and
+the benign `[manager] WARNING: Test in comment` echoes, unchanged from
+Slice 2, which are omitted for length.)
+```
+Run started:2026-10-10 14:06:36.224116+00:00
+
+Test results:
+	No issues identified.
+
+Code scanned:
+	Total lines of code: 2080
+	Total lines skipped (#nosec): 0
+	Total potential issues skipped due to specifically being disabled (e.g., #nosec BXXX): 8
+
+Run metrics:
+	Total issues (by severity):
+		Undefined: 0
+		Low: 0
+		Medium: 0
+		High: 0
+	Total issues (by confidence):
+		Undefined: 0
+		Low: 0
+		Medium: 0
+		High: 0
+Files skipped (0):
+BANDIT:0
+```
+
+### `python -m pytest --cov=regtriage --cov-branch --cov-report=term-missing`
+(174 items collected; earlier suites pass unchanged — only the 13 new
+report-test lines are reproduced here verbatim, plus the full table.)
+```
+tests/test_report.py::test_escape_markdown_neutralizes_injection PASSED  [ 47%]
+tests/test_report.py::test_escape_markdown_leaves_plain_text PASSED      [ 48%]
+tests/test_report.py::test_json_report_round_trip PASSED                 [ 49%]
+tests/test_report.py::test_markdown_report_escapes_everything PASSED     [ 49%]
+tests/test_report.py::test_markdown_report_tolerates_ragged_input PASSED [ 50%]
+tests/test_report.py::test_slack_success_posts_json PASSED               [ 50%]
+tests/test_report.py::test_slack_timeout_is_execution_error PASSED       [ 51%]
+tests/test_report.py::test_slack_http_error_hides_url PASSED             [ 52%]
+tests/test_report.py::test_slack_rejects_bad_timeout PASSED              [ 52%]
+tests/test_report.py::test_slack_rejects_non_https_urls PASSED           [ 53%]
+tests/test_report.py::test_slack_non_200_is_execution_error PASSED       [ 53%]
+tests/test_report.py::test_slack_connection_refused_is_execution_error PASSED [ 54%]
+tests/test_report.py::test_slack_https_url_passes_scheme_gate PASSED     [ 54%]
+
+Name                                    Stmts   Miss Branch BrPart  Cover   Missing
+-----------------------------------------------------------------------------------
+src\regtriage\__init__.py                   5      0      0      0   100%
+src\regtriage\agent\__init__.py             6      0      0      0   100%
+src\regtriage\agent\clients.py             55      0     12      0   100%
+src\regtriage\agent\diagnosis.py           19      0      0      0   100%
+src\regtriage\agent\loop.py               125      0     34      0   100%
+src\regtriage\agent\protocol.py            37      0      0      0   100%
+src\regtriage\agent\tooling.py             57      0      8      0   100%
+src\regtriage\audit.py                     22      0      0      0   100%
+src\regtriage\config.py                   139      1     52      4    97%   103, 155->157, 157->160, 255->254
+src\regtriage\errors.py                    91      0      0      0   100%
+src\regtriage\logging.py                   54      0      0      0   100%
+src\regtriage\parsing\__init__.py           3      0      0      0   100%
+src\regtriage\parsing\base.py              12      0      0      0   100%
+src\regtriage\parsing\cocotb.py            44      3     16      1    93%   42-43, 78
+src\regtriage\report\__init__.py            3      0      0      0   100%
+src\regtriage\report\report.py             49      0     24      0   100%
+src\regtriage\report\slack.py              33      0      8      0   100%
+src\regtriage\runner\__init__.py            3      0      0      0   100%
+src\regtriage\runner\executor.py           18      0      0      0   100%
+src\regtriage\runner\local.py              61     10     18      4    80%   30-36, 46, 72, 82
+src\regtriage\signature.py                 62      0     18      0   100%
+src\regtriage\tools\__init__.py             4      0      0      0   100%
+src\regtriage\tools\files.py               96      4     44      2    96%   158, 160, 166-167
+src\regtriage\tools\git.py                 68      1     22      1    98%   135
+src\regtriage\tools\sandbox.py             17      0      4      0   100%
+src\regtriage\validation\__init__.py        3      0      0      0   100%
+src\regtriage\validation\evidence.py       10      0      0      0   100%
+src\regtriage\validation\validator.py      60      3     18      1    95%   42-43, 95
+-----------------------------------------------------------------------------------
+TOTAL                                    1156     22    324     14    97%
+Required test coverage of 90.0% reached. Total coverage: 97.43%
+======================= 171 passed, 3 skipped in 26.98s ========================
+PYTEST_EXIT:0
+```
+
+Slice 7 verdict: green, 171 passed + 3 skipped, coverage 97.43%;
+report/* at 100%.
+
+---
+
 ## CI fix: broken lockfile install step (2026-10-10)
 
 Symptom: both GitHub CI runs failed in ~9s at "Install dependencies from

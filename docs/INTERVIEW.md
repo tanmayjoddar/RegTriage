@@ -314,3 +314,42 @@ The audit log exists for incident forensics ("what did we send the model?"), and
 
 **Limitation:**
 Redacted audit records cannot reproduce the exact model input for debugging a subtle misdiagnosis — the engineer sees `[REDACTED_ANTHROPIC_KEY]` where the model saw the same token, which is fine, but genuinely cannot tell *which* key or email was present. Full-fidelity debugging requires the original logs, which the audit deliberately does not duplicate. Timestamps are local-clock UTC with no monotonic guarantee, so ordering concurrent-cluster records precisely is best-effort.
+
+---
+
+## Slice 7: reports + Slack + escaping
+
+### 1. Why escape Markdown with backslashes instead of stripping special characters or rendering plain text?
+**Answer:**
+Stripping destroys evidence fidelity — a validator quote containing backticks would no longer match anything, and the report would misrepresent what the agent saw. Backslash-escaping keeps every character visible while neutralizing Markdown semantics (`\#` renders as literal `#`, `\[click\]` cannot become a link). JSON needs no escaper because `json.dumps` structurally separates data from syntax. The split is deliberate: escape for Markdown (a markup language with injection semantics), rely on encoding for JSON (a data format without them).
+
+**Limitation:**
+Backslash-escaping assumes a CommonMark-compliant renderer; exotic Slack `mrkdwn` parsing differs slightly (e.g., `<!here>` mentions are not neutralized by backslashes). Slack delivery sends the same escaped text, so a `<!channel>` string in a log could still ping a channel. A Slack-specific post-pass for `<!...>` sequences would close that, and is not implemented.
+
+### 2. Why does the Slack sender enforce https and hide the URL from errors?
+**Answer:**
+Bandit B310 correctly flags `urlopen` on a variable URL: a `file://` URL would turn the reporter into a file reader, and an `http://` URL would send report content (which may contain RTL snippets) in cleartext. Since real Slack webhooks are always `https://hooks.slack.com/...`, the sender allowlists `https` and permits `http` only for loopback test stubs — anything else raises before any socket opens. Error messages carry only the status code, never the URL, because `urllib`'s own exceptions embed the URL and would otherwise leak the webhook secret into logs and tracebacks. The secret travels as `SecretStr` from the caller's environment.
+
+**Limitation:**
+The loopback exception is test-only convenience baked into production code — a reviewer could call it a backdoor-shaped carve-out. It only permits `127.0.0.1`/`localhost`/`::1`, never exfiltration targets, but the cleaner design would inject the opener (like the Anthropic client's factory) and keep production https-only. I chose the allowlist for debuggability and documented the tradeoff here.
+
+### 3. Why test Slack against a real localhost HTTP server instead of mocking `urlopen`?
+**Answer:**
+Mocking `urlopen` would assert my code calls my mock — it cannot catch a wrong header name, a malformed JSON body, or a timeout that never fires. The stub server verifies the actual bytes on the wire (`{"text": ...}`), the real timeout path (server sleeps, client raises with `timed_out=True`), and real HTTP error codes. The one concession is the 3-second sleeping test, which costs wall-clock time on every suite run.
+
+**Limitation:**
+`localhost` networking can behave differently under sandboxes and VPNs (proxies intercepting even loopback, `no_proxy` misconfiguration). If `HTTP_PROXY` is set without a `NO_PROXY` exception for 127.0.0.1, these tests fail for environmental reasons. The suite does not currently scrub proxy env vars for the Slack tests — a known fragility I would fix by forcing `no_proxy` in the test fixture if it ever bites.
+
+### 4. Why do the report builders tolerate ragged input (`isinstance` guards everywhere)?
+**Answer:**
+Reports render data that crossed trust boundaries: agent-produced diagnoses, eval-harness outputs, and hand-loaded JSON. A single malformed cluster dict must not crash the whole report — that would turn one bad cluster into total evidence loss. So `render_markdown` type-checks every level and skips what it cannot understand, while `build_json_report` (typed inputs) stays strict. The ragged-input test pins this: strings where dicts belong, lists where dicts belong — all render without raising.
+
+**Limitation:**
+Silent skipping is the opposite of the validator's loud-rejection philosophy: a skipped cluster vanishes from the Markdown without any marker. I accepted this because reports are presentational (the JSON report retains everything verbatim for machines), but a `<!-- skipped N malformed entries -->` marker would be more honest and is not implemented.
+
+### 5. Why stdlib `urllib` instead of `httpx`/`requests` for the webhook?
+**Answer:**
+The dependency budget is fixed (`anthropic`, `pydantic`, `typer`); every new runtime dependency is supply-chain surface on a box that handles RTL IP. A single POST with a timeout needs nothing `urllib` lacks, and one fewer dependency means one fewer entry to hash, audit, and keep vulnerability-free in the lockfile. The timeout is explicit on every call per the project's subprocess/network rule.
+
+**Limitation:**
+`urllib` has no connection pooling, retries, or rich errors — a transient Slack 500 fails the notification permanently with no backoff. For a daily-regression notification that is acceptable (the JSON/Markdown reports on disk are the durable artifacts; Slack is best-effort garnish), but a production alerter would want at least one retry with jitter, which is not implemented.
