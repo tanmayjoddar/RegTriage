@@ -145,11 +145,12 @@ def test_request_translation_text_and_tool_result_names() -> None:
     sent = fake.models.calls[0]
     assert sent["model"] == "gemini-test"
     roles = [c.role for c in sent["contents"]]
-    assert roles == ["user", "model", "tool"]
+    assert roles == ["user", "model", "user"]
     tool_content = sent["contents"][2]
     fr = tool_content.parts[0].function_response
     assert fr.name == "grep_source"
     assert fr.response == {"result": "hit"}
+    assert fr.id == "u1"
     assert sent["config"].system_instruction == "sys"
     assert sent["config"].automatic_function_calling.disable is True
 

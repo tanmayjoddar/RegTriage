@@ -172,24 +172,20 @@ def _to_gemini_contents(request: LlmRequest) -> list[Any]:
             if parts:
                 contents.append(types.Content(role="model", parts=parts))
         else:
-            texts: list[Any] = []
+            user_parts: list[Any] = []
             for block in message.content:
                 if isinstance(block, TextBlock):
-                    texts.append(types.Part.from_text(text=block.text))
+                    user_parts.append(types.Part.from_text(text=block.text))
                 elif isinstance(block, ToolResultBlock):
                     name = names_by_id.get(block.tool_use_id, "unknown")
-                    contents.append(
-                        types.Content(
-                            role="tool",
-                            parts=[
-                                types.Part.from_function_response(
-                                    name=name, response={"result": block.content}
-                                )
-                            ],
-                        )
+                    part = types.Part.from_function_response(
+                        name=name, response={"result": block.content}
                     )
-            if texts:
-                contents.append(types.Content(role="user", parts=texts))
+                    if part.function_response is not None and block.tool_use_id:
+                        part.function_response.id = block.tool_use_id
+                    user_parts.append(part)
+            if user_parts:
+                contents.append(types.Content(role="user", parts=user_parts))
     return contents
 
 
