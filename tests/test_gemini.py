@@ -396,16 +396,58 @@ def test_provider_rejects_unknown(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 @pytest.mark.skipif(
-    not (os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")),
-    reason="live Gemini test needs GEMINI_API_KEY/GOOGLE_API_KEY",
+    not os.environ.get("GEMINI_API_KEY"),
+    reason="live Gemini test needs GEMINI_API_KEY",
 )
-def test_live_gemini_tiny_prompt() -> None:
-    key = SecretStr(os.environ.get("GEMINI_API_KEY") or os.environ["GOOGLE_API_KEY"])
-    client = GeminiClient(key, max_retries=0)
-    response = client.create_message(
-        _request(model=DEFAULT_GEMINI_MODEL_ID, messages=[], tool_choice={})
+def test_live_gemini_two_turn_tool_call() -> None:
+    key = SecretStr(os.environ["GEMINI_API_KEY"])
+    client = GeminiClient(key, max_retries=1)
+
+    # Turn 1: Force tool call to read_log_lines
+    turn1_request = _request(
+        model=DEFAULT_GEMINI_MODEL_ID,
+        system="You are an assistant that calls tools when instructed.",
+        messages=[
+            ConversationMessage(
+                role="user",
+                content=[TextBlock(text="Please inspect sim.log using read_log_lines.")],
+            )
+        ],
+        tool_choice={"type": "tool", "name": "read_log_lines"},
     )
-    assert isinstance(response, LlmResponse)
+    turn1_resp = client.create_message(turn1_request)
+    assert any(isinstance(b, ToolUseBlock) for b in turn1_resp.content)
+    tool_call = next(b for b in turn1_resp.content if isinstance(b, ToolUseBlock))
+    assert tool_call.name == "read_log_lines"
+
+    # Turn 2: Return tool result, model answers with text
+    turn2_request = _request(
+        model=DEFAULT_GEMINI_MODEL_ID,
+        system="You are an assistant that calls tools when instructed.",
+        messages=[
+            ConversationMessage(
+                role="user",
+                content=[TextBlock(text="Please inspect sim.log using read_log_lines.")],
+            ),
+            ConversationMessage(
+                role="assistant",
+                content=turn1_resp.content,
+            ),
+            ConversationMessage(
+                role="user",
+                content=[
+                    ToolResultBlock(
+                        tool_use_id=tool_call.id,
+                        content="Line 1: Test passed cleanly.\nLine 2: End of simulation.",
+                    )
+                ],
+            ),
+        ],
+        tool_choice={"type": "auto"},
+    )
+    turn2_resp = client.create_message(turn2_request)
+    assert any(isinstance(b, TextBlock) for b in turn2_resp.content)
+    assert turn2_resp.input_tokens > 0 or turn2_resp.output_tokens > 0
 
 
 def test_replay_client_still_works() -> None:

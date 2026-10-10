@@ -79,3 +79,11 @@ sudo systemctl daemon-reload && sudo systemctl enable --now regtriage.timer  # N
 detect-secrets audit .secrets.baseline  # mark the 8 known-fake fixtures — NOT YET RUN BY A HUMAN
 pre-commit install  # NOT YET RUN BY A HUMAN
 ```
+
+## 10. Live Gemini 2-turn tool-call integration test
+
+```bash
+export GEMINI_API_KEY="AIzaSy..."  # env only, never commit — NOT YET RUN BY A HUMAN
+pytest tests/test_gemini.py -k test_live_gemini_two_turn_tool_call -q --no-cov  # NOT YET RUN BY A HUMAN
+```
+
