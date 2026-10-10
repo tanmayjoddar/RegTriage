@@ -120,12 +120,17 @@ def triage_cluster(
     redactor: SecretRedactor | None = None,
     audit: AuditLogger | None = None,
     offline: bool = False,
+    skip_validation: bool = False,
+    capture: list[Diagnosis] | None = None,
 ) -> Diagnosis:
     """Investigate one cluster with the model and return its Diagnosis.
 
     The loop always terminates with a Diagnosis: verified on checked
     evidence, unverified after exhausted retries, failed on budget or
     transport aborts. Tool errors become is_error results, never crashes.
+    `skip_validation` disables the machine checker (ablation arm only).
+    `capture`, when given, records every submitted diagnosis before
+    validation so harnesses can score raw output.
     """
     scrubber = redactor if redactor is not None else SecretRedactor()
     runtime = ToolRuntime(root, git_timeout_seconds=config.subprocesses_timeout_seconds)
@@ -250,7 +255,9 @@ def triage_cluster(
             feedback = _submission_error_text(submits[0].input)
             if feedback is None:
                 parsed = Diagnosis.model_validate(submits[0].input)
-                failures = _evidence_failures(root, parsed)
+                if capture is not None:
+                    capture.append(parsed)
+                failures = [] if skip_validation else _evidence_failures(root, parsed)
                 feedback = (
                     "evidence rejected, fix or drop these items:\n" + "\n".join(failures)
                     if failures

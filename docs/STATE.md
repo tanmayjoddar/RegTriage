@@ -1,35 +1,36 @@
 # RegTriage Run State (updated after every slice)
 
-- Last completed slice: 7 (reports + Slack + escaping)
+- Last completed slice: 8 (eval harness, baseline, three arms, cost guard,
+  results, CLI)
 - What is done:
-  - Slices 0, 2-6 committed; CI fix + matrix job green (runs #3-5 success,
-    ubuntu AND windows, incl. --require-hashes installs).
-  - Slice 7: `src/regtriage/report/` (escape_markdown, build_json_report,
-    render_markdown, send_slack with https/loopback allowlist) and
-    `tests/test_report.py` (13 tests incl. localhost webhook stub).
-  - 171 passed + 3 skipped, coverage 97.43%; report/* at 100%.
-    All 5 checks green (bandit: 8 justified nosecs); log + INTERVIEW updated.
-- Exact next step: Slice 8 — eval harness (NEVER CUT). New: `eval/`
-  package (mutants, baseline, three arms, cost guard, results generator),
-  `src/regtriage/cli.py` (typer: run, report, eval, eval-report,
-  validate-config — CLI was listed in MODULES but assigned no slice; it
-  lands here where all subsystems exist), `eval/manual_triage.csv` +
-  timing script, generated `eval/results.json` + `docs/RESULTS.md`.
-  Requires choosing the pinned verilog-pcie commit SHA + verifying its
-  LICENSE (MIT-style, NOT taxi/CERN-OHL-S) — web research + RUNBOOK note.
-  +5 INTERVIEW Q&A; log entry; commit "slice 8: ...".
+  - Slices 0, 2-7 committed; CI green incl. matrix --require-hashes jobs.
+  - Slice 8: `src/regtriage/eval/` (upstream pin 25156a9a/MIT verified,
+    6 seeded operators, scoring, harness with baseline gate + 3 arms +
+    budgets, results I/O + manual timing), `src/regtriage/cli.py` (run,
+    report, eval, eval-report, validate-config; fixes Slice-1 entry point),
+    `eval/manual_triage.csv` (header-only template).
+  - 209 passed + 4 skipped, coverage 97.83%; eval/* ≥96%.
+    All 5 checks green (bandit: 9 justified nosecs); log + INTERVIEW updated.
+- Exact next step: Slice 9 — SlurmExecutor + systemd + infra docs. New:
+  `src/regtriage/runner/slurm.py` (Executor Protocol; sbatch --parsable,
+  poll sacct/squeue, scancel on timeout, batch script from template),
+  `deploy/regtriage.service` + `regtriage.timer` + Slurm batch template,
+  `docs/INFRA.md` (single-node Slurm VM + NFS export, exact verification
+  commands, all NOT YET RUN BY A HUMAN). Slurm tests against fake
+  sbatch/squeue/sacct/scancel shims on PATH. +5 INTERVIEW Q&A; log entry;
+  commit "slice 9: ...". (Polish here is cut candidate #3 if forced.)
 - Open issues:
   - Live Anthropic calls NEVER made; forced-submit quality unmarked.
-  - Slack `<!here>`-style mentions not neutralized; no webhook retry.
-  - Proxy env vars could break localhost Slack tests (no no_proxy guard).
-  - `.pre-commit-config.yaml` with detect-secrets hook still to write
-    (Slice 11 with docs).
-  - `.venv/` Linux-only; Windows box uses system Python 3.11.9.
-  - cocotb+Icarus integration never executed; real sim on Linux NOT YET
-    RUN BY A HUMAN. Skips: "iverilog not installed",
-    "cannot create symlinks on this machine",
-    "POSIX file modes do not apply on this platform".
+  - Real eval (baseline green + 30 mutants + 3 arms) NEVER run — needs
+    Linux + Icarus + cocotb + API key. First on RUNBOOK list.
+  - Manual timing CSV has zero rows (template only — honest, no numbers).
+  - Skips: "iverilog not installed", "cannot create symlinks on this
+    machine", "POSIX file modes do not apply on this platform",
+    make-gated simulate test (runs on Linux CI).
   - RUNBOOK.md lands in Slice 11; until then human-only items live here.
-  - Threshold default 0.75 unevaluated on real logs; Slice 8 measures it.
+  - `.pre-commit-config.yaml` with detect-secrets hook still to write
+    (Slice 11).
+  - `.venv/` Linux-only; Windows box uses system Python 3.11.9.
+  - Threshold default 0.75 still unevaluated (needs real eval numbers).
   - Template leftovers kept untouched and untracked. Planned removal in
     Slice 11 (explicit, not silent).

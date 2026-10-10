@@ -1151,6 +1151,170 @@ report/* at 100%.
 
 ---
 
+## Slice 8: eval harness, baseline, three arms, cost guard, results, CLI (2026-10-10)
+
+New files: `src/regtriage/eval/upstream.py` (pin 25156a9a162c41c60f11f41590c7d006d015ae5a,
+MIT verified via GitHub API; taxi explicitly excluded),
+`src/regtriage/eval/mutants.py` (6 seeded operators + ground truth),
+`src/regtriage/eval/scoring.py` (hit@file/module/line±5, fab rates),
+`src/regtriage/eval/harness.py` (EvalConfig, prepare_case with leak-proof
+re-init, baseline gate, killed-only filtering, heuristic/no_validator/full
+arms, MeteredClient + _Budget cost guard, clean aborts),
+`src/regtriage/eval/report.py` (results.json I/O, RESULTS.md with required
+limitations, manual-CSV math), `src/regtriage/eval/__init__.py`,
+`src/regtriage/cli.py` (typer run/report/eval/eval-report/validate-config;
+also fixes the Slice-1 entry point, which had no cli.py),
+`eval/manual_triage.csv` (header-only template — no fabricated times),
+`tests/test_eval.py` (24 tests), `tests/test_cli.py` (16 tests).
+`triage_cluster` gained additive `skip_validation` + `capture` (ablation +
+raw-output scoring).
+
+Mid-slice fixes: B311 nosec (seeded RNG is not crypto); Windows rmtree vs
+read-only git files; empty-repo git commit correctly refuses (test bug, not
+code bug); mutant quote ±5 assertions kept seed-independent.
+
+### `python -m ruff check src tests`
+```
+All checks passed!
+RUFF:0
+```
+
+### `python -m ruff format --check src tests`
+```
+51 files already formatted
+FMT:0
+```
+
+### `python -m mypy --strict src tests`
+```
+Success: no issues found in 51 source files
+MYPY:0
+```
+
+### `python -m bandit -c pyproject.toml -r src`
+(Bandit output below is verbatim except the trailing `[main] INFO` lines and
+the benign `[manager] WARNING: Test in comment` echoes, unchanged from
+Slice 2, which are omitted for length.)
+```
+Run started:2026-10-10 14:25:37.606696+00:00
+
+Test results:
+	No issues identified.
+
+Code scanned:
+	Total lines of code: 3023
+	Total lines skipped (#nosec): 0
+	Total potential issues skipped due to specifically being disabled (e.g., #nosec BXXX): 9
+
+Run metrics:
+	Total issues (by severity):
+		Undefined: 0
+		Low: 0
+		Medium: 0
+		High: 0
+	Total issues (by confidence):
+		Undefined: 0
+		Low: 0
+		Medium: 0
+		High: 0
+Files skipped (0):
+BANDIT:0
+```
+
+### `python -m pytest --cov=regtriage --cov-branch --cov-report=term-missing`
+(213 items collected; earlier suites pass unchanged — only the 40 new
+eval/CLI lines are reproduced here verbatim, plus the full table.)
+```
+tests/test_cli.py::test_validate_config_ok PASSED                        [ 16%]
+tests/test_cli.py::test_validate_config_masks_secrets PASSED             [ 17%]
+tests/test_cli.py::test_validate_config_rejects_bad_env PASSED           [ 17%]
+tests/test_cli.py::test_report_regenerates_markdown PASSED               [ 18%]
+tests/test_cli.py::test_run_with_key_and_no_clusters PASSED              [ 18%]
+tests/test_cli.py::test_run_posts_to_slack_stub PASSED                   [ 19%]
+tests/test_cli.py::test_report_rejects_non_object PASSED                 [ 19%]
+tests/test_cli.py::test_eval_missing_repo_is_exit_1 PASSED               [ 20%]
+tests/test_cli.py::test_make_eval_client_branches PASSED                 [ 20%]
+tests/test_cli.py::test_report_rejects_bad_json PASSED                   [ 21%]
+tests/test_cli.py::test_run_offline_end_to_end PASSED                    [ 21%]
+tests/test_cli.py::test_run_needs_key_or_offline PASSED                  [ 22%]
+tests/test_cli.py::test_slack_without_url_fails PASSED                   [ 22%]
+tests/test_cli.py::test_eval_aborts_on_red_baseline PASSED               [ 23%]
+tests/test_cli.py::test_eval_report_renders_results PASSED               [ 23%]
+tests/test_cli.py::test_eval_report_missing_file PASSED                  [ 23%]
+tests/test_eval.py::test_operators_mutate_expected_lines PASSED          [ 36%]
+tests/test_eval.py::test_generate_is_seeded_and_capped PASSED            [ 36%]
+tests/test_eval.py::test_apply_mutant_replaces_line PASSED               [ 37%]
+tests/test_eval.py::test_prepare_case_fresh_repo_and_neutral_name PASSED [ 37%]
+tests/test_eval.py::test_prepare_case_missing_repo PASSED                [ 38%]
+tests/test_eval.py::test_prepare_case_reuses_name PASSED                 [ 38%]
+tests/test_eval.py::test_baseline_red_aborts_without_mutating PASSED     [ 38%]
+tests/test_eval.py::test_full_run_scores_three_arms PASSED               [ 39%]
+tests/test_eval.py::test_budget_guard_aborts_cleanly PASSED              [ 39%]
+tests/test_eval.py::test_surviving_mutant_not_counted PASSED             [ 40%]
+tests/test_eval.py::test_killed_without_failures_not_scored PASSED       [ 40%]
+tests/test_eval.py::test_missing_target_is_config_error PASSED           [ 41%]
+tests/test_eval.py::test_cost_budget_aborts PASSED                       [ 41%]
+tests/test_eval.py::test_rank_skips_git_and_unreadable PASSED            [ 42%]
+tests/test_eval.py::test_score_diagnosis_and_modules PASSED              [ 42%]
+tests/test_eval.py::test_fabrication_rates PASSED                        [ 43%]
+tests/test_eval.py::test_report_round_trip_and_limitations PASSED        [ 43%]
+tests/test_eval.py::test_manual_csv_summary PASSED                       [ 44%]
+tests/test_eval.py::test_metered_client_cost_guard PASSED                [ 44%]
+tests/test_eval.py::test_make_simulate_outcomes SKIPPED (make not in...) [ 45%]
+tests/test_eval.py::test_upstream_pin_facts PASSED                       [ 45%]
+tests/test_eval.py::test_eval_report_model_defaults PASSED               [ 46%]
+tests/test_eval.py::test_results_json_load_failure PASSED                [ 46%]
+
+Name                                    Stmts   Miss Branch BrPart  Cover   Missing
+-----------------------------------------------------------------------------------
+src\regtriage\__init__.py                   5      0      0      0   100%
+src\regtriage\agent\__init__.py             6      0      0      0   100%
+src\regtriage\agent\clients.py             55      0     12      0   100%
+src\regtriage\agent\diagnosis.py           19      0      0      0   100%
+src\regtriage\agent\loop.py               127      0     36      0   100%
+src\regtriage\agent\protocol.py            37      0      0      0   100%
+src\regtriage\agent\tooling.py             57      0      8      0   100%
+src\regtriage\audit.py                     22      0      0      0   100%
+src\regtriage\cli.py                      103      1     16      0    99%   162
+src\regtriage\config.py                   139      1     52      2    98%   103, 255->254
+src\regtriage\errors.py                    91      0     30      0   100%
+src\regtriage\eval\__init__.py              6      0      0      0   100%
+src\regtriage\eval\harness.py             230      7     46      0    97%   168-174
+src\regtriage\eval\mutants.py              86      0     34      0   100%
+src\regtriage\eval\report.py               48      0     10      0   100%
+src\regtriage\eval\scoring.py              43      0     12      0   100%
+src\regtriage\eval\upstream.py              6      0      0      0   100%
+src\regtriage\logging.py                   54      0     16      1    99%   91->94
+src\regtriage\parsing\__init__.py           3      0      0      0   100%
+src\regtriage\parsing\base.py              12      0      0      0   100%
+src\regtriage\parsing\cocotb.py            44      3     16      1    93%   42-43, 78
+src\regtriage\report\__init__.py            3      0      0      0   100%
+src\regtriage\report\report.py             49      0     24      0   100%
+src\regtriage\report\slack.py              33      0      8      0   100%
+src\regtriage\runner\__init__.py            3      0      0      0   100%
+src\regtriage\runner\executor.py           18      0      0      0   100%
+src\regtriage\runner\local.py              61     10     18      4    80%   30-36, 46, 72, 82
+src\regtriage\signature.py                 62      0     18      0   100%
+src\regtriage\tools\__init__.py             4      0      0      0   100%
+src\regtriage\tools\files.py               96      4     44      2    96%   158, 160, 166-167
+src\regtriage\tools\git.py                 68      1     22      1    98%   135
+src\regtriage\tools\sandbox.py             17      0      4      0   100%
+src\regtriage\validation\__init__.py        3      0      0      0   100%
+src\regtriage\validation\evidence.py       10      0      0      0   100%
+src\regtriage\validation\validator.py      60      3     18      1    95%   42-43, 95
+-----------------------------------------------------------------------------------
+TOTAL                                    1680     30    444     12    98%
+Required test coverage of 90.0% reached. Total coverage: 97.83%
+======================= 209 passed, 4 skipped in 36.25s ========================
+PYTEST_EXIT:0
+```
+
+Slice 8 verdict: green, 209 passed + 4 skipped, coverage 97.83%.
+Remaining misses are platform-gated (make paths, killpg, symlinks) or
+defensive guards; eval/* all ≥96% (mutants/scoring/report/upstream 100%).
+
+---
+
 ## CI fix: broken lockfile install step (2026-10-10)
 
 Symptom: both GitHub CI runs failed in ~9s at "Install dependencies from
