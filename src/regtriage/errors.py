@@ -176,3 +176,23 @@ class RedactionError(RegTriageError):
             payload["pattern_name"] = pattern_name
         super().__init__(message, payload)
         self.pattern_name = pattern_name
+
+
+class BudgetExceeded(AgentLoopError):  # noqa: N818 - name mandated by the cost-guard contract.
+    """Raised before sending an LLM call that would breach a call/cost ceiling."""
+
+    def __init__(
+        self,
+        message: str,
+        cluster_id: str | None = None,
+        steps_taken: int = 0,
+        token_count: int = 0,
+        details: dict[str, Any] | None = None,
+    ) -> None:
+        super().__init__(
+            message,
+            cluster_id=cluster_id,
+            steps_taken=steps_taken,
+            token_count=token_count,
+            details=details,
+        )

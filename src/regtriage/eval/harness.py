@@ -14,7 +14,13 @@ from pydantic import BaseModel, ConfigDict, Field
 from regtriage.agent import Diagnosis, LlmClient, triage_cluster
 from regtriage.agent.protocol import LlmRequest, LlmResponse
 from regtriage.config import DEFAULT_MODEL_ID, RegTriageConfig
-from regtriage.errors import AgentLoopError, ConfigurationError, ExecutionError, ParsingError
+from regtriage.errors import (
+    AgentLoopError,
+    BudgetExceeded,
+    ConfigurationError,
+    ExecutionError,
+    ParsingError,
+)
 from regtriage.eval.mutants import Mutant, apply_mutant, generate_mutants
 from regtriage.eval.scoring import fabrication_rates, same_module, score_diagnosis
 from regtriage.parsing import CocotbResultsParser, Failure
@@ -115,10 +121,24 @@ class EvalReport(BaseModel):
 
 
 class MeteredClient:
-    """Count calls/tokens/usd around any client; enforce the cost guard."""
+    """Count calls/tokens/usd around any client; block over-budget sends.
 
-    def __init__(self, inner: LlmClient) -> None:
+    Ceilings are checked BEFORE forwarding, so a blocked call never leaves
+    the machine and never spends. Breaches raise BudgetExceeded.
+    """
+
+    def __init__(self, inner: LlmClient, max_calls: int, max_usd: float) -> None:
+        if max_calls < 1:
+            raise ConfigurationError(
+                f"max_calls must be at least 1, got {max_calls}", parameter_name="max_calls"
+            )
+        if max_usd < 0:
+            raise ConfigurationError(
+                f"max_usd must not be negative, got {max_usd}", parameter_name="max_usd"
+            )
         self._inner = inner
+        self._max_calls = max_calls
+        self._max_usd = max_usd
         self.llm_calls = 0
         self.input_tokens = 0
         self.output_tokens = 0
@@ -132,14 +152,15 @@ class MeteredClient:
         )
 
     def check_budget(self, max_calls: int, max_usd: float) -> None:
-        """Raise AgentLoopError when either ceiling is already reached."""
+        """Raise BudgetExceeded when either ceiling is already reached."""
         if self.llm_calls >= max_calls:
-            raise AgentLoopError(f"LLM call budget exceeded ({max_calls} calls)")
+            raise BudgetExceeded(f"LLM call budget exceeded ({max_calls} calls)")
         if self.usd >= max_usd:
-            raise AgentLoopError(f"cost budget exceeded (${self.usd:.4f} >= ${max_usd:.2f})")
+            raise BudgetExceeded(f"cost budget exceeded (${self.usd:.4f} >= ${max_usd:.2f})")
 
     def create_message(self, request: LlmRequest) -> LlmResponse:
-        """Count the call, forward it, and meter usage from the response."""
+        """Block over-budget calls before sending, then meter the response."""
+        self.check_budget(self._max_calls, self._max_usd)
         self.llm_calls += 1
         response = self._inner.create_message(request)
         self.input_tokens += response.input_tokens
@@ -331,7 +352,7 @@ def run_eval(
         try:
             for arm, skip in (("no_validator", True), ("full", False)):
                 budget.check(config.max_llm_calls, config.max_cost_usd)
-                metered = MeteredClient(make_client())
+                metered = MeteredClient(make_client(), config.max_llm_calls, config.max_cost_usd)
                 captured: list[Diagnosis] = []
                 agent_config = RegTriageConfig(
                     workspace_root=case,
@@ -389,11 +410,11 @@ class _Budget:
         )
 
     def check(self, max_calls: int, max_usd: float) -> None:
-        """Raise AgentLoopError once a ceiling is reached."""
+        """Raise BudgetExceeded once a ceiling is reached."""
         if self.llm_calls >= max_calls:
-            raise AgentLoopError(f"LLM call budget exceeded ({max_calls} calls)")
+            raise BudgetExceeded(f"LLM call budget exceeded ({max_calls} calls)")
         if self.usd >= max_usd:
-            raise AgentLoopError(f"cost budget exceeded (${self.usd:.4f} >= ${max_usd:.2f})")
+            raise BudgetExceeded(f"cost budget exceeded (${self.usd:.4f} >= ${max_usd:.2f})")
 
     def absorb(self, metered: MeteredClient) -> None:
         """Fold one attempt's metered usage into the shared totals."""

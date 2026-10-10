@@ -3,6 +3,7 @@
 from regtriage.config import RegTriageConfig, load_config
 from regtriage.errors import (
     AgentLoopError,
+    BudgetExceeded,
     ConfigurationError,
     ExecutionError,
     ParsingError,
@@ -17,6 +18,7 @@ __version__ = "0.1.0"
 
 __all__ = [
     "AgentLoopError",
+    "BudgetExceeded",
     "ConfigurationError",
     "ExecutionError",
     "ParsingError",

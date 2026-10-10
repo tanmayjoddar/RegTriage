@@ -457,7 +457,7 @@ def test_metered_client_cost_guard() -> None:
     inner = ReplayClient(
         [LlmResponse(content=[], stop_reason="end_turn", input_tokens=1_000_000, output_tokens=0)]
     )
-    metered = MeteredClient(inner)
+    metered = MeteredClient(inner, max_calls=10, max_usd=100.0)
     metered.create_message(LlmRequest(model="m", system="", messages=[], tools=[], tool_choice={}))
     assert metered.usd == pytest.approx(2.0)
     with pytest.raises(AgentLoopError, match="cost budget"):
@@ -503,7 +503,7 @@ def test_make_simulate_outcomes(tmp_path: Path) -> None:
     )
     from regtriage.agent import LlmRequest
 
-    metered = MeteredClient(inner)
+    metered = MeteredClient(inner, max_calls=10, max_usd=100.0)
     metered.check_budget(5, 100.0)
     metered.create_message(LlmRequest(model="m", system="", messages=[], tools=[], tool_choice={}))
     assert metered.llm_calls == 1
