@@ -7,8 +7,8 @@ from collections.abc import Sequence
 from typing import Any
 
 _SECRET_PLACEHOLDER = "[REDACTED_SECRET]"  # nosec B105: redaction placeholder token, not a real password or secret.
-_JSON_SECRET_TOKEN = "[REDACTED_JSON_SECRET]"
-_PASSWORD_PHRASE_TOKEN = "[REDACTED_PASSWORD_PHRASE]"
+_JSON_SECRET_TOKEN = "[REDACTED_JSON_SECRET]"  # nosec B105: redaction placeholder token, not a real password or secret.
+_PASSWORD_PHRASE_TOKEN = "[REDACTED_PASSWORD_PHRASE]"  # nosec B105: redaction placeholder token, not a real password or secret.
 
 # Tokens whose replacement is not the token itself map to an explicit
 # substitution template here; every other token replaces the whole match.

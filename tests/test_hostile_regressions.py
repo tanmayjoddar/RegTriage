@@ -639,3 +639,97 @@ def test_fix_2_binary_blob_rejected(tmp_path: Path) -> None:
     with pytest.raises(ValidationError) as exc_info:
         validate_evidence(repo, evidence)
     assert "UTF-8" in str(exc_info.value)
+
+
+def _ws_secrets(tmp_path: Path) -> Path:
+    root = tmp_path / "ws"
+    (root / ".git").mkdir(parents=True, exist_ok=True)
+    (root / ".git" / "config").write_text(
+        "[core]\n\trepositoryformatversion = 0\n", encoding="utf-8"
+    )
+    (root / ".env").write_text(
+        "ANTHROPIC_API_KEY=sk-ant-shouldneverberead123456\n", encoding="utf-8"
+    )
+    (root / ".ssh").mkdir(exist_ok=True)
+    (root / ".ssh" / "id_ed25519").write_text(
+        "-----BEGIN OPENSSH PRIVATE KEY-----\nfake\n", encoding="utf-8"
+    )
+    (root / "server.pem").write_text("-----BEGIN PRIVATE KEY-----\nfake\n", encoding="utf-8")
+    (root / "notes.txt").write_text("harmless\n", encoding="utf-8")
+    (root / ".gitignore").write_text("*.log\n", encoding="utf-8")
+    return root
+
+
+def test_probe_1_git_file_and_dotenv_blocked(tmp_path: Path) -> None:
+    from regtriage.errors import SandboxViolationError
+    from regtriage.tools import grep_source, read_log_lines
+
+    root = _ws_secrets(tmp_path)
+    for denied in (".git/config", ".env"):
+        with pytest.raises(SandboxViolationError) as exc_info:
+            read_log_lines(root, denied)
+        assert exc_info.value.violation_type == "denied_name"
+    hits = grep_source(root, "sk-ant")
+    assert hits == []
+    hits = grep_source(root, "harmless")
+    assert [(h.path, h.line) for h in hits] == [("notes.txt", 1)]
+
+
+def test_probe_1_key_files_blocked(tmp_path: Path) -> None:
+    from regtriage.errors import SandboxViolationError
+    from regtriage.tools import read_log_lines
+
+    root = _ws_secrets(tmp_path)
+    for denied in (".ssh/id_ed25519", "server.pem"):
+        with pytest.raises(SandboxViolationError) as exc_info:
+            read_log_lines(root, denied)
+        assert exc_info.value.violation_type == "denied_name"
+
+
+def test_fix_1_nested_and_suffixed_denies(tmp_path: Path) -> None:
+    from regtriage.errors import SandboxViolationError
+    from regtriage.tools import read_log_lines
+
+    root = _ws_secrets(tmp_path)
+    (root / "sub").mkdir(exist_ok=True)
+    (root / "sub" / ".git").mkdir(exist_ok=True)
+    (root / "sub" / ".git" / "HEAD").write_text("ref: refs/heads/main\n", encoding="utf-8")
+    (root / ".env.local").write_text("K=v\n", encoding="utf-8")
+    (root / "srv.key").write_text("private\n", encoding="utf-8")
+    (root / "bundle.p12").write_bytes(b"\x00binary")
+    for denied in ("sub/.git/HEAD", ".env.local", "srv.key", "bundle.p12"):
+        with pytest.raises(SandboxViolationError) as exc_info:
+            read_log_lines(root, denied)
+        assert exc_info.value.violation_type == "denied_name"
+
+
+def test_fix_1_innocent_dotfiles_still_allowed(tmp_path: Path) -> None:
+    from regtriage.tools import grep_source, read_log_lines
+
+    root = _ws_secrets(tmp_path)
+    (root / ".ssh" / "id_rsa.pub").write_text("ssh-ed25519 PUBLIC\n", encoding="utf-8")
+    assert read_log_lines(root, ".gitignore") == ["1: *.log"]
+    assert read_log_lines(root, ".ssh/id_rsa.pub") == ["1: ssh-ed25519 PUBLIC"]
+    hits = grep_source(root, "harmless")
+    assert [(h.path, h.line) for h in hits] == [("notes.txt", 1)]
+
+
+def test_fix_1_validator_refuses_denied_paths(tmp_path: Path) -> None:
+    from regtriage.errors import SandboxViolationError
+    from regtriage.validation import Evidence, validate_evidence
+
+    root = _ws_secrets(tmp_path)
+    evidence = Evidence(kind="source", ref=".env", line_start=1, line_end=1, quote="x")
+    with pytest.raises(SandboxViolationError) as exc_info:
+        validate_evidence(root, evidence)
+    assert exc_info.value.violation_type == "denied_name"
+
+
+def test_fix_1_git_tools_deny_dotgit_paths(tmp_path: Path) -> None:
+    from regtriage.errors import SandboxViolationError
+    from regtriage.tools import git_blame
+
+    root = _ws_secrets(tmp_path)
+    with pytest.raises(SandboxViolationError) as exc_info:
+        git_blame(root, ".git/config", 1, 1)
+    assert exc_info.value.violation_type == "denied_name"

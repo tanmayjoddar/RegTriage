@@ -14,6 +14,7 @@ from regtriage.tools.sandbox import (
     _DEFAULT_MAX_LINES,
     _DEFAULT_MAX_RESULTS,
     _MAX_FILE_BYTES,
+    denied_name_reason,
     resolve_within_root,
 )
 
@@ -175,6 +176,8 @@ def _collect_candidates(start: Path, resolved_root: Path) -> list[tuple[str, lis
                 return candidates
             candidate = (Path(dirpath) / name).resolve()
             if candidate != resolved_root and resolved_root not in candidate.parents:
+                continue
+            if denied_name_reason(candidate) is not None:
                 continue
             if not candidate.is_file():
                 continue
