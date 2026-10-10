@@ -13,7 +13,12 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from regtriage.agent import Diagnosis, LlmClient, triage_cluster
 from regtriage.agent.protocol import LlmRequest, LlmResponse
-from regtriage.config import DEFAULT_MODEL_ID, RegTriageConfig
+from regtriage.config import (
+    DEFAULT_MODEL_ID,
+    ModelPriceEstimate,
+    RegTriageConfig,
+    get_model_price_estimate,
+)
 from regtriage.errors import (
     AgentLoopError,
     BudgetExceeded,
@@ -138,6 +143,9 @@ class MeteredClient:
         max_calls: int,
         max_usd: float,
         shared: "_Budget | None" = None,
+        provider: str | None = None,
+        model: str | None = None,
+        custom_prices: Any = None,
     ) -> None:
         if max_calls < 1:
             raise ConfigurationError(
@@ -151,17 +159,31 @@ class MeteredClient:
         self._max_calls = max_calls
         self._max_usd = max_usd
         self._shared = shared
+        self._provider = provider
+        self._model = model
+        self._custom_prices = custom_prices
         self.llm_calls = 0
         self.input_tokens = 0
         self.output_tokens = 0
+        self._usd = 0.0
 
     @property
     def usd(self) -> float:
-        """Spend so far at current Sonnet pricing."""
-        return (
-            self.input_tokens / 1_000_000 * INPUT_USD_PER_MTOK
-            + self.output_tokens / 1_000_000 * OUTPUT_USD_PER_MTOK
-        )
+        """Estimated spend so far in USD."""
+        return self._usd
+
+    def _resolve_provider(self) -> str:
+        if self._provider is not None:
+            return self._provider
+        inner_type = type(self._inner).__name__.lower()
+        if "gemini" in inner_type:
+            return "gemini"
+        return "anthropic"
+
+    def _resolve_estimate(self, model: str) -> ModelPriceEstimate:
+        provider = self._resolve_provider()
+        target_model = self._model if self._model is not None else model
+        return get_model_price_estimate(provider, target_model, self._custom_prices)
 
     def check_budget(self, max_calls: int, max_usd: float) -> None:
         """Raise BudgetExceeded when either ceiling is already reached."""
@@ -176,7 +198,9 @@ class MeteredClient:
         When bound to a shared budget, the shared counters move on every
         send, so the next call — in this arm or the next — sees the true
         global remainder. Blocked calls leave all counters untouched.
+        Fails loudly if the model has no price entry.
         """
+        estimate = self._resolve_estimate(request.model)
         self.check_budget(self._max_calls, self._max_usd)
         if self._shared is not None:
             self._shared.check(self._max_calls, self._max_usd)
@@ -185,9 +209,14 @@ class MeteredClient:
         response = self._inner.create_message(request)
         self.input_tokens += response.input_tokens
         self.output_tokens += response.output_tokens
+        call_usd = (response.input_tokens / 1_000_000 * estimate.input_usd_per_mtok) + (
+            response.output_tokens / 1_000_000 * estimate.output_usd_per_mtok
+        )
+        self._usd += call_usd
         if self._shared is not None:
             self._shared.input_tokens += response.input_tokens
             self._shared.output_tokens += response.output_tokens
+            self._shared.record_usd(call_usd)
         return response
 
 
@@ -376,7 +405,11 @@ def run_eval(
             for arm, skip in (("no_validator", True), ("full", False)):
                 budget.check(config.max_llm_calls, config.max_cost_usd)
                 metered = MeteredClient(
-                    make_client(), config.max_llm_calls, config.max_cost_usd, shared=budget
+                    make_client(),
+                    config.max_llm_calls,
+                    config.max_cost_usd,
+                    shared=budget,
+                    model=config.model_id,
                 )
                 captured: list[Diagnosis] = []
                 agent_config = RegTriageConfig(
@@ -425,14 +458,15 @@ class _Budget:
         self.llm_calls = 0
         self.input_tokens = 0
         self.output_tokens = 0
+        self._usd = 0.0
 
     @property
     def usd(self) -> float:
-        """Spend so far at current Sonnet pricing."""
-        return (
-            self.input_tokens / 1_000_000 * INPUT_USD_PER_MTOK
-            + self.output_tokens / 1_000_000 * OUTPUT_USD_PER_MTOK
-        )
+        """Spend so far based on estimated pricing."""
+        return self._usd
+
+    def record_usd(self, amount: float) -> None:
+        self._usd += amount
 
     def check(self, max_calls: int, max_usd: float) -> None:
         """Raise BudgetExceeded once a ceiling is reached."""
@@ -446,6 +480,7 @@ class _Budget:
         self.llm_calls += metered.llm_calls
         self.input_tokens += metered.input_tokens
         self.output_tokens += metered.output_tokens
+        self._usd += metered.usd
 
 
 def _finish(

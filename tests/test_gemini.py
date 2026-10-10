@@ -180,11 +180,22 @@ def test_response_usage_maps_to_cost_guard() -> None:
     fake.models.script.append(_gemini_response([_text_part("ok")], prompt_tokens=1_000_000))
     inner_client = _client(fake)
     metered = MeteredClient(inner_client, max_calls=100, max_usd=100.0)
-    metered.create_message(_request())
+    metered.create_message(_request(model=DEFAULT_GEMINI_MODEL_ID))
     assert metered.input_tokens == 1_000_000
-    assert metered.usd == pytest.approx(2.0)
+    assert metered.usd == pytest.approx(0.75)
     with pytest.raises(AgentLoopError):
-        metered.check_budget(100, 1.0)
+        metered.check_budget(100, 0.5)
+
+
+def test_metered_client_fails_loudly_on_unpriced_model() -> None:
+    from regtriage.eval.harness import MeteredClient
+
+    fake = _FakeGeminiSdk()
+    fake.models.script.append(_gemini_response([_text_part("ok")], prompt_tokens=1_000))
+    inner_client = _client(fake)
+    metered = MeteredClient(inner_client, max_calls=100, max_usd=100.0)
+    with pytest.raises(ConfigurationError, match="no estimated token pricing"):
+        metered.create_message(_request(model="unknown-gemini-model"))
 
 
 def test_function_call_round_trip_with_ids() -> None:
