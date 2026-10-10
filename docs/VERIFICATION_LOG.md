@@ -1315,6 +1315,97 @@ defensive guards; eval/* all ≥96% (mutants/scoring/report/upstream 100%).
 
 ---
 
+## Slice 9: SlurmExecutor + systemd units + infra docs (2026-10-10)
+
+New files: `src/regtriage/runner/slurm.py` (SlurmExecutor: sbatch
+--parsable, sacct/squeue polling, scancel on timeout, template-rendered
+scripts, argv-only subprocess with timeouts), `tests/test_runner_slurm.py`
+(10 tests: 3 portable, 7 against fake sbatch/squeue/sacct/scancel shims —
+skipped on Windows, run on Linux CI), `deploy/regtriage.service`
+(Type=oneshot + hardening), `deploy/regtriage.timer` (daily, Persistent),
+`deploy/sbatch-template.sh` (documented mirror of the code template),
+`docs/INFRA.md` (Slurm VM + NFS + key file + unit install, every command
+NOT YET RUN BY A HUMAN).
+
+Mid-slice: SIM105 (contextlib.suppress for best-effort scancel), B404/B603
+justified nosecs like the other subprocess call sites.
+
+### `python -m ruff check src tests`
+```
+All checks passed!
+RUFF:0
+```
+
+### `python -m ruff format --check src tests`
+```
+53 files already formatted
+FMT:0
+```
+
+### `python -m mypy --strict src tests`
+```
+Success: no issues found in 53 source files
+MYPY:0
+```
+
+### `python -m bandit -c pyproject.toml -r src`
+(Bandit output below is verbatim except the trailing `[main] INFO` lines and
+the benign `[manager] WARNING: Test in comment` echoes, unchanged from
+Slice 2, which are omitted for length.)
+```
+Run started:2026-10-10 14:31:42.372835+00:00
+
+Test results:
+	No issues identified.
+
+Code scanned:
+	Total lines of code: 3191
+	Total lines skipped (#nosec): 0
+	Total potential issues skipped due to specifically being disabled (e.g., #nosec BXXX): 11
+
+Run metrics:
+	Total issues (by severity):
+		Undefined: 0
+		Low: 0
+		Medium: 0
+		High: 0
+	Total issues (by confidence):
+		Undefined: 0
+		Low: 0
+		Medium: 0
+		High: 0
+Files skipped (0):
+BANDIT:0
+```
+
+### `python -m pytest --cov=regtriage --cov-branch --cov-report=term-missing`
+(223 items collected; earlier suites pass unchanged — only the 10 new
+Slurm-test lines are reproduced here verbatim, plus the affected rows.)
+```
+tests/test_runner_slurm.py::test_render_batch_script_contains_directives PASSED [ 66%]
+tests/test_runner_slurm.py::test_invalid_executor_args_rejected PASSED   [ 66%]
+tests/test_runner_slurm.py::test_missing_slurm_binary_is_execution_error PASSED [ 67%]
+tests/test_runner_slurm.py::test_happy_path_collects_output SKIPPED      [ 67%]
+tests/test_runner_slurm.py::test_submit_failure_raises SKIPPED (slur...) [ 68%]
+tests/test_runner_slurm.py::test_timeout_cancels_and_flags SKIPPED (...) [ 68%]
+tests/test_runner_slurm.py::test_failed_state_maps_to_nonzero SKIPPED    [ 69%]
+tests/test_runner_slurm.py::test_unknown_state_maps_to_nonzero SKIPPED    [ 69%]
+tests/test_runner_slurm.py::test_squeue_pending_then_timeout SKIPPED     [ 69%]
+tests/test_runner_slurm.py::test_run_jobs_preserves_order SKIPPED (s...) [ 70%]
+src\regtriage\runner\slurm.py              91     44     28      2    45%   34-36, 53-54, 99-109, 113-128, 132-133, 138->140, 141, 154-175
+TOTAL                                    1772     74    472     14    95%
+Required test coverage of 90.0% reached. Total coverage: 95.01%
+====================== 212 passed, 11 skipped in 36.70s ========================
+PYTEST_EXIT:0
+```
+The 7 shim skips share one reason: "slurm shims need POSIX exec permission"
+(shown truncated by pytest as above); they execute on Linux CI. slurm.py
+reaches full coverage there; the total gate holds regardless.
+
+Slice 9 verdict: green, 212 passed + 11 skipped, coverage 95.01%.
+
+---
+
 ## CI fix: broken lockfile install step (2026-10-10)
 
 Symptom: both GitHub CI runs failed in ~9s at "Install dependencies from

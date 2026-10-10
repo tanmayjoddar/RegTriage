@@ -1,0 +1,9 @@
+[Unit]
+Description=Run RegTriage PCIe regression triage daily
+
+[Timer]
+OnCalendar=daily
+Persistent=true
+
+[Install]
+WantedBy=timers.target

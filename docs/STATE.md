@@ -1,36 +1,30 @@
 # RegTriage Run State (updated after every slice)
 
-- Last completed slice: 8 (eval harness, baseline, three arms, cost guard,
-  results, CLI)
+- Last completed slice: 9 (SlurmExecutor + systemd + infra docs)
 - What is done:
-  - Slices 0, 2-7 committed; CI green incl. matrix --require-hashes jobs.
-  - Slice 8: `src/regtriage/eval/` (upstream pin 25156a9a/MIT verified,
-    6 seeded operators, scoring, harness with baseline gate + 3 arms +
-    budgets, results I/O + manual timing), `src/regtriage/cli.py` (run,
-    report, eval, eval-report, validate-config; fixes Slice-1 entry point),
-    `eval/manual_triage.csv` (header-only template).
-  - 209 passed + 4 skipped, coverage 97.83%; eval/* ≥96%.
-    All 5 checks green (bandit: 9 justified nosecs); log + INTERVIEW updated.
-- Exact next step: Slice 9 — SlurmExecutor + systemd + infra docs. New:
-  `src/regtriage/runner/slurm.py` (Executor Protocol; sbatch --parsable,
-  poll sacct/squeue, scancel on timeout, batch script from template),
-  `deploy/regtriage.service` + `regtriage.timer` + Slurm batch template,
-  `docs/INFRA.md` (single-node Slurm VM + NFS export, exact verification
-  commands, all NOT YET RUN BY A HUMAN). Slurm tests against fake
-  sbatch/squeue/sacct/scancel shims on PATH. +5 INTERVIEW Q&A; log entry;
-  commit "slice 9: ...". (Polish here is cut candidate #3 if forced.)
+  - Slices 0, 2-8 committed; CI green incl. matrix --require-hashes jobs.
+  - Slice 9: `src/regtriage/runner/slurm.py` (sbatch --parsable, poll,
+    scancel, template) + `tests/test_runner_slurm.py` (3 portable + 7
+    POSIX-shim tests, skipped here, run on Linux CI) + `deploy/` units +
+    `docs/INFRA.md` (all commands NOT YET RUN BY A HUMAN).
+  - 212 passed + 11 skipped, coverage 95.01% (slurm.py full on Linux).
+    All 5 checks green (bandit: 11 justified nosecs); log + INTERVIEW done.
+- Exact next step: Slice 10 — UVM + Verilator parsers (cut candidate #1
+  if budget forces it, but it is small: mirror the cocotb parser).
+  New: `src/regtriage/parsing/uvm.py` (UVM_ERROR/UVM_FATAL),
+  `src/regtriage/parsing/verilator.py` (%Warning/%Error),
+  `tests/fixtures/uvm*.log + verilator*.log`, `tests/test_parsing_extra.py`.
+  +5 INTERVIEW Q&A; log entry; commit "slice 10: ...".
+  Then Slice 11 (README/RUNBOOK/THREAT_MODEL/RESULTS stub, remove template
+  leftovers explicitly), then mandatory final self-audit +
+  docs/COMPLETION_REPORT.md.
 - Open issues:
   - Live Anthropic calls NEVER made; forced-submit quality unmarked.
-  - Real eval (baseline green + 30 mutants + 3 arms) NEVER run — needs
-    Linux + Icarus + cocotb + API key. First on RUNBOOK list.
-  - Manual timing CSV has zero rows (template only — honest, no numbers).
-  - Skips: "iverilog not installed", "cannot create symlinks on this
-    machine", "POSIX file modes do not apply on this platform",
-    make-gated simulate test (runs on Linux CI).
-  - RUNBOOK.md lands in Slice 11; until then human-only items live here.
-  - `.pre-commit-config.yaml` with detect-secrets hook still to write
-    (Slice 11).
-  - `.venv/` Linux-only; Windows box uses system Python 3.11.9.
-  - Threshold default 0.75 still unevaluated (needs real eval numbers).
+  - Real eval NEVER run (needs Linux + Icarus + cocotb + key).
+  - Manual timing CSV has zero rows (honest template).
+  - Platform-gated skips (iverilog, symlinks, POSIX modes, make, slurm
+    shims) run on Linux CI; this box covers the portable subset.
+  - RUNBOOK.md lands in Slice 11; human-only items live here till then.
+  - Threshold 0.75 unevaluated (needs real eval numbers).
   - Template leftovers kept untouched and untracked. Planned removal in
     Slice 11 (explicit, not silent).

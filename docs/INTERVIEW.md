@@ -392,3 +392,42 @@ The slice plan listed `cli.py` under modules but assigned it no slice; it needs 
 
 **Limitation:**
 Offline mode's `failed` diagnoses make the `run` command's happy path (real LLM, real sims) the *least*-tested path in the suite — every CLI test uses offline, fixtures, or stubs. The command a human will actually run in production is verified only by its error branches, never by a successful live invocation. That live run is NOT YET RUN BY A HUMAN and is first on the RUNBOOK list.
+
+---
+
+## Slice 9: SlurmExecutor + systemd units + infra docs
+
+### 1. Why poll `sacct`/`squeue` instead of `sbatch --wait`?
+**Answer:**
+`sbatch --wait` blocks until completion but cannot enforce *our* per-job timeout — a hung simulator would hold the triage process forever. Polling with `time.monotonic()` against the job's deadline lets the executor `scancel` the exact moment the budget expires, then report `timed_out=True` so downstream code never mistakes a killed run for a pass. `sacct` gives terminal states; `squeue` covers the gap where accounting has not seen a pending job yet; both calls carry the CLI timeout so a wedged controller cannot hang us either.
+
+**Limitation:**
+Polling wakes every 10s by default, so completion detection lags up to one interval and timeout enforcement overshoots by the same — a job can run ~10s past its deadline. Tightening the interval burns controller RPCs on shared clusters; the overshoot is accepted and bounded, and timeouts are reported, not hidden.
+
+### 2. Why does the fake-sbatch shim execute the script body instead of just returning an id?
+**Answer:**
+A stub returning "42" would prove the parsing of `--parsable` output but nothing about output collection — the interesting behavior is that `stdout.txt`/`stderr.txt` land with the job's real output. Because our rendered scripts are `#SBATCH` comment lines plus one shell command, the shim can `grep -v '^#'` the payload and run it with redirections parsed from the `--output=`/`--error=` lines — exercising template rendering, path plumbing, and file collection end to end without Slurm. State advances PENDING→COMPLETED over three `sacct` calls so the polling loop is genuinely traversed.
+
+**Limitation:**
+The shim is still not Slurm: real failure modes (node loss, `OUT_OF_MEMORY`, controller restarts mid-poll, `sacct` lagging minutes behind reality) are not simulated. The `UNKNOWN`-state branch exists for exactly that fog and is tested, but "tested against shims" must not be oversold as "tested against Slurm" — the INFRA smoke commands are NOT YET RUN BY A HUMAN for that reason.
+
+### 3. Why is `UNKNOWN` treated as failure (returncode 1) rather than retried?
+**Answer:**
+`UNKNOWN` means both `sacct` (no record) and `squeue` (not queued) disclaim the job — retrying the *poll* cannot resurrect information neither source has. Returning failure with the collected (possibly empty) outputs keeps the pipeline moving: the cluster triage sees a failed run, not a hang. An operator seeing repeated UNKNOWNs has a controller problem, and the audit-visible job id gives them the thread to pull.
+
+**Limitation:**
+This misclassifies the race where the job finished between the last poll and accounting commit — a genuinely completed sim reported as failed. The window is seconds wide and the consequence is a wasted re-run, not a wrong diagnosis, so failure bias beats blocking bias here.
+
+### 4. What does each systemd hardening option buy, and what breaks because of them?
+**Answer:**
+`NoNewPrivileges=yes` blocks privilege-escalation tricks from sim logs executed as the service user; `ProtectSystem=strict` mounts `/usr`/`/boot` read-only so only `ReadWritePaths` (workspace, log dir) are writable; `ProtectHome=yes` hides human home dirs from the triage process; `PrivateTmp=yes` isolates `/tmp` from license daemons and other users. The API key arrives via `EnvironmentFile=/etc/regtriage/env` (0600, root-owned) instead of argv or unit files, so `ps` and `git` can never see it.
+
+**Limitation:**
+Hardening can break the sim itself: Icarus/cocotb toolchains sometimes want `$HOME` caches, `/tmp` sharing with a license server, or writes outside the two blessed paths — each failure mode surfaces as a cryptic sim crash, not a clear "hardening blocked X" message. The INFRA doc's manual `systemctl start` + journal step exists to shake exactly this out, and it is NOT YET RUN BY A HUMAN.
+
+### 5. Why do `deploy/sbatch-template.sh` and `render_batch_script` both exist?
+**Answer:**
+They serve different readers: the code template is the tested source of truth (unit test pins every directive line), while the deploy file is operator documentation with `@PLACEHOLDERS@` that no code path reads — its header says so explicitly. Duplication is a drift risk, mitigated by the header comment ("mirror ... keep in sync") rather than by code generation, because generating deploy docs from code would couple operations paperwork to the release under test.
+
+**Limitation:**
+Headers do not enforce anything: the two templates can and eventually will drift, and nothing fails when they do. The honest fix (single source generating both, with a test diffing them) is small and I did not build it — flagged here so it is a conscious debt, not an accident.

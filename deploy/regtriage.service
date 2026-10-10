@@ -1,0 +1,16 @@
+[Unit]
+Description=RegTriage PCIe regression triage (one-shot run)
+After=network.target munge.service slurmd.service
+
+[Service]
+Type=oneshot
+User=regtriage
+Group=regtriage
+WorkingDirectory=/var/lib/regtriage
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+ReadWritePaths=/var/lib/regtriage /var/log/regtriage
+EnvironmentFile=/etc/regtriage/env
+ExecStart=/usr/local/bin/regtriage run --repo /var/lib/regtriage/verilog-pcie --results-xml /var/lib/regtriage/results.xml --out /var/lib/regtriage/out
