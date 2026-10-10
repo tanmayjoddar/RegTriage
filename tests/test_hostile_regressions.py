@@ -542,3 +542,100 @@ def test_fix_5_prepare_case_under_hostile_env(
     monkeypatch.setenv("GIT_WORK_TREE", str(decoy))
     case = prepare_case(src, tmp_path / "work", "case-0000", None)
     assert git_blame(case, "a.v", 2, 2)[0].text.strip() == "wire w;"
+
+
+def _commit_repo(tmp_path: Path) -> tuple[Path, str]:
+    import subprocess
+
+    repo = _git_repo_with(
+        tmp_path / "repo",
+        {"rtl/dut.v": "module dut;\n  reg [31:0] len;\n  wire done;\nendmodule\n"},
+    )
+    sha = subprocess.run(
+        ["git", "-C", str(repo), "rev-parse", "HEAD"],
+        capture_output=True,
+        text=True,
+        timeout=60,
+        check=True,
+    ).stdout.strip()
+    return repo, sha
+
+
+def test_probe_2_window_must_contain_quote(tmp_path: Path) -> None:
+    from regtriage.errors import ValidationError
+    from regtriage.validation import Evidence, validate_evidence
+
+    repo, sha = _commit_repo(tmp_path)
+    evidence = Evidence(
+        kind="commit", ref=f"{sha}:rtl/dut.v", line_start=1, line_end=1, quote="wire done;"
+    )
+    with pytest.raises(ValidationError) as exc_info:
+        validate_evidence(repo, evidence)
+    assert "not found" in str(exc_info.value)
+
+
+def test_probe_2_window_beyond_blob_rejected(tmp_path: Path) -> None:
+    from regtriage.errors import ValidationError
+    from regtriage.validation import Evidence, validate_evidence
+
+    repo, sha = _commit_repo(tmp_path)
+    evidence = Evidence(
+        kind="commit", ref=f"{sha}:rtl/dut.v", line_start=1, line_end=99, quote="module dut;"
+    )
+    with pytest.raises(ValidationError) as exc_info:
+        validate_evidence(repo, evidence)
+    assert "exceed" in str(exc_info.value)
+
+
+def test_fix_2_narrow_window_with_quote_passes(tmp_path: Path) -> None:
+    from regtriage.validation import Evidence, validate_evidence
+
+    repo, sha = _commit_repo(tmp_path)
+    evidence = Evidence(
+        kind="commit", ref=f"{sha}:rtl/dut.v", line_start=2, line_end=3, quote="wire done;"
+    )
+    validate_evidence(repo, evidence)
+
+
+def _git_in(repo: Path, *args: str) -> str:
+    import subprocess
+
+    completed = subprocess.run(
+        ["git", "-C", str(repo), *args],
+        capture_output=True,
+        text=True,
+        timeout=60,
+        check=True,
+    )
+    return completed.stdout.strip()
+
+
+def test_fix_2_deleted_path_rejected(tmp_path: Path) -> None:
+    from regtriage.errors import ValidationError
+    from regtriage.validation import Evidence, validate_evidence
+
+    repo = _git_repo_with(tmp_path / "repo", {"old.v": "module old;\nendmodule\n"})
+    target = repo / "old.v"
+    target.unlink()
+    _git_in(repo, "add", "-A")
+    _git_in(repo, "commit", "-qm", "drop old")
+    sha = _git_in(repo, "rev-parse", "HEAD")
+    evidence = Evidence(kind="commit", ref=f"{sha}:old.v", line_start=1, line_end=1, quote="x")
+    with pytest.raises(ValidationError) as exc_info:
+        validate_evidence(repo, evidence)
+    assert "not present" in str(exc_info.value)
+
+
+def test_fix_2_binary_blob_rejected(tmp_path: Path) -> None:
+    from regtriage.errors import ValidationError
+    from regtriage.validation import Evidence, validate_evidence
+
+    repo = _git_repo_with(tmp_path / "repo", {"a.v": "module a;\nendmodule\n"})
+    (repo / "blob.bin").write_bytes(b"\xff\xfe\x00binary")
+    _git_in(repo, "add", "-A")
+    _git_in(repo, "commit", "-qm", "add blob")
+    sha = _git_in(repo, "rev-parse", "HEAD")
+    evidence = Evidence(kind="commit", ref=f"{sha}:blob.bin", line_start=1, line_end=1, quote="x")
+    with pytest.raises(ValidationError) as exc_info:
+        validate_evidence(repo, evidence)
+    assert "UTF-8" in str(exc_info.value)

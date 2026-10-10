@@ -65,14 +65,19 @@ def _git_environ(root: Path) -> dict[str, str]:
     return env
 
 
-def run_git(root: Path, args: list[str], timeout_seconds: float) -> str:
-    """Run one git argv list inside `root`; every call carries a timeout."""
+def _spawn(
+    root: Path, args: list[str], timeout_seconds: float
+) -> subprocess.CompletedProcess[bytes]:
+    """Run git with byte pipes; map spawn/timeout failures to ExecutionError.
+
+    Byte pipes matter: decoding happens in our thread, so undecodable output
+    raises here instead of dying silently inside a subprocess reader thread.
+    """
     argv = ["git", "-C", str(root)] + args
     try:
-        completed = subprocess.run(  # nosec B603: argv list only, shell is never enabled.
+        return subprocess.run(  # nosec B603: argv list only, shell is never enabled.
             argv,
             capture_output=True,
-            text=True,
             timeout=timeout_seconds,
             check=False,
             env=_git_environ(root),
@@ -85,14 +90,56 @@ def run_git(root: Path, args: list[str], timeout_seconds: float) -> str:
             command=argv,
             timed_out=True,
         ) from exc
+
+
+def _check_returncode(argv: list[str], completed: subprocess.CompletedProcess[bytes]) -> None:
+    """Raise ExecutionError for nonzero exits (stderr decoded lossily)."""
     if completed.returncode != 0:
+        raw_stderr = completed.stderr
+        stderr = (
+            raw_stderr.decode("utf-8", errors="replace").strip()[:500]
+            if isinstance(raw_stderr, bytes)
+            else ""
+        )
         raise ExecutionError(
-            f"git command failed: {completed.stderr.strip()[:500]}",
+            f"git command failed: {stderr}",
             command=argv,
             returncode=completed.returncode,
-            stderr=completed.stderr.strip()[:500],
+            stderr=stderr,
         )
-    return completed.stdout
+
+
+def run_git(
+    root: Path,
+    args: list[str],
+    timeout_seconds: float,
+    encoding: str = "utf-8",
+    errors: str = "replace",
+) -> str:
+    """Run one git argv list inside `root`; every call carries a timeout.
+
+    Decoding is explicit UTF-8 (never locale-dependent) so output bytes mean
+    the same on every platform; pass errors="strict" when undecodable output
+    must raise instead of mojibake.
+    """
+    argv = ["git", "-C", str(root)] + args
+    completed = _spawn(root, args, timeout_seconds)
+    _check_returncode(argv, completed)
+    raw = completed.stdout
+    if not isinstance(raw, bytes):
+        raise ExecutionError("git produced no output", command=argv)
+    return raw.decode(encoding, errors)
+
+
+def run_git_bytes(root: Path, args: list[str], timeout_seconds: float) -> bytes:
+    """Run one git argv list and return raw stdout bytes for exact decoding."""
+    argv = ["git", "-C", str(root)] + args
+    completed = _spawn(root, args, timeout_seconds)
+    _check_returncode(argv, completed)
+    raw = completed.stdout
+    if not isinstance(raw, bytes):
+        raise ExecutionError("git produced no output", command=argv)
+    return raw
 
 
 def git_blame(

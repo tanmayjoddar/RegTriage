@@ -182,8 +182,8 @@ def test_valid_commit_citation(git_repo: Path) -> None:
     evidence = Evidence(
         kind="commit",
         ref=f"{sha}:rtl/pcie_dma.v",
-        line_start=1,
-        line_end=1,
+        line_start=2,
+        line_end=2,
         quote="reg [31:0] len;",
     )
     validate_evidence(git_repo, evidence)
@@ -216,14 +216,14 @@ def test_commit_must_touch_cited_file(git_repo: Path) -> None:
     assert "did not touch" in _reason(exc_info)
 
 
-def test_commit_quote_must_appear_in_diff(git_repo: Path) -> None:
+def test_commit_quote_must_appear_in_window(git_repo: Path) -> None:
     sha = _sha(git_repo, "HEAD")
     evidence = Evidence(
         kind="commit",
         ref=f"{sha}:rtl/pcie_dma.v",
         line_start=1,
         line_end=1,
-        quote="something never in the diff",
+        quote="something never in the file",
     )
     with pytest.raises(ValidationError) as exc_info:
         validate_evidence(git_repo, evidence)

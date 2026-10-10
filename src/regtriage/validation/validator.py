@@ -10,7 +10,7 @@ import re
 from pathlib import Path
 
 from regtriage.errors import ExecutionError, ValidationError
-from regtriage.tools.git import run_git
+from regtriage.tools.git import run_git, run_git_bytes
 from regtriage.tools.sandbox import resolve_within_root
 from regtriage.validation.evidence import Evidence
 
@@ -82,7 +82,13 @@ def _split_commit_ref(evidence: Evidence) -> tuple[str, str]:
 def _validate_commit_citation(
     root: Path, evidence: Evidence, timeout_seconds: float = _GIT_TIMEOUT_SECONDS
 ) -> None:
-    """Validate a commit citation: sha exists and touched the cited file."""
+    """Validate a commit citation against the blob at sha:path.
+
+    The sha must exist, the path must be inside the root and among the files
+    the commit touched, and the cited line window must exist in the blob
+    with the normalized quote inside it — the same rigor as file citations,
+    anchored at the commit instead of the worktree.
+    """
     sha, rel = _split_commit_ref(evidence)
     resolved_root = resolve_within_root(root, ".")
     resolve_within_root(root, rel)
@@ -99,8 +105,25 @@ def _validate_commit_citation(
     ).splitlines()
     if rel not in [line.strip() for line in touched if line.strip()]:
         raise _fail(evidence, f"commit {sha} did not touch file {rel}")
-    diff = run_git(resolved_root, ["show", sha, "--", rel], timeout_seconds)
-    _check_quote(evidence, normalize_quote(diff))
+    try:
+        raw_blob = run_git_bytes(resolved_root, ["show", f"{sha}:{rel}"], timeout_seconds)
+    except ExecutionError as exc:
+        if exc.returncode is None:
+            raise
+        raise _fail(evidence, f"path {rel} is not present in commit {sha}") from exc
+    try:
+        blob = raw_blob.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        raise _fail(evidence, f"committed file is not valid UTF-8: {rel}") from exc
+    lines = blob.splitlines()
+    if evidence.line_end > len(lines):
+        raise _fail(
+            evidence,
+            f"lines {evidence.line_start}-{evidence.line_end} exceed "
+            f"committed file length {len(lines)}",
+        )
+    window = normalize_quote(" ".join(lines[evidence.line_start - 1 : evidence.line_end]))
+    _check_quote(evidence, window)
 
 
 def validate_evidence(
