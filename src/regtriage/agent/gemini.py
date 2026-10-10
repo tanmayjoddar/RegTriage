@@ -9,6 +9,7 @@ disabled so the loop — not the SDK — drives tool execution).
 
 import random
 import time
+import uuid
 from collections.abc import Callable, Mapping, Sequence
 from typing import Any
 
@@ -192,7 +193,9 @@ def _to_gemini_contents(request: LlmRequest) -> list[Any]:
     return contents
 
 
-def _from_gemini_response(raw: Any) -> LlmResponse:
+def _from_gemini_response(
+    raw: Any, id_generator: Callable[[], str] | None = None
+) -> LlmResponse:
     """Translate candidates/usage back; reject unknown part shapes."""
     blocks: list[TextBlock | ToolUseBlock] = []
     candidates: Sequence[Any] = getattr(raw, "candidates", None) or []
@@ -202,7 +205,13 @@ def _from_gemini_response(raw: Any) -> LlmResponse:
         call = getattr(part, "function_call", None)
         if call is not None and getattr(call, "name", None):
             args = getattr(call, "args", None) or {}
-            call_id = getattr(call, "id", None) or f"call-{index}"
+            raw_id = getattr(call, "id", None)
+            if raw_id:
+                call_id = str(raw_id)
+            elif id_generator is not None:
+                call_id = id_generator()
+            else:
+                call_id = f"call-{uuid.uuid4().hex[:12]}"
             blocks.append(
                 ToolUseBlock(id=str(call_id), name=str(call.name), input=dict(args))
             )
@@ -299,6 +308,11 @@ class GeminiClient:
         self._max_output_tokens = max_output_tokens
         self._max_retries = max_retries
         self._sleeper = sleeper if sleeper is not None else time.sleep
+        self._call_counter = 0
+
+    def _next_tool_call_id(self) -> str:
+        self._call_counter += 1
+        return f"call-{self._call_counter}"
 
     def _models(self) -> Any:
         return self._client.models
@@ -337,4 +351,4 @@ class GeminiClient:
                 self._sleeper(wait)
                 attempt += 1
                 continue
-            return _from_gemini_response(raw)
+            return _from_gemini_response(raw, id_generator=self._next_tool_call_id)

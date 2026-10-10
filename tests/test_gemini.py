@@ -15,10 +15,12 @@ import pytest
 from pydantic import SecretStr
 
 from regtriage.agent import (
+    ConversationMessage,
     LlmRequest,
     LlmResponse,
     ReplayClient,
     TextBlock,
+    ToolResultBlock,
     ToolUseBlock,
 )
 from regtriage.agent.gemini import (
@@ -400,3 +402,51 @@ def test_replay_client_still_works() -> None:
     )
     out = script.create_message(_request())
     assert out.input_tokens == 1 and len(script.requests) == 1
+
+
+def test_tool_call_ids_unique_across_turns_when_missing() -> None:
+    from regtriage.agent.gemini import _to_gemini_contents
+
+    fake = _FakeGeminiSdk()
+    # Turn 1 response: tool_a call with id=None
+    fake.models.script.append(
+        _gemini_response([SimpleNamespace(text=None, function_call=SimpleNamespace(name="tool_a", args={"x": 1}, id=None))])
+    )
+    # Turn 2 response: tool_b call with id=None
+    fake.models.script.append(
+        _gemini_response([SimpleNamespace(text=None, function_call=SimpleNamespace(name="tool_b", args={"y": 2}, id=None))])
+    )
+    client = _client(fake)
+    resp1 = client.create_message(_request(messages=[ConversationMessage(role="user", content=[TextBlock(text="run a")])]))
+    assert len(resp1.content) == 1 and isinstance(resp1.content[0], ToolUseBlock)
+    call1 = resp1.content[0]
+
+    resp2 = client.create_message(_request(messages=[
+        ConversationMessage(role="user", content=[TextBlock(text="run a")]),
+        ConversationMessage(role="assistant", content=[call1]),
+        ConversationMessage(role="user", content=[ToolResultBlock(tool_use_id=call1.id, content="result_a")]),
+    ]))
+    assert len(resp2.content) == 1 and isinstance(resp2.content[0], ToolUseBlock)
+    call2 = resp2.content[0]
+
+    # The generated IDs must be distinct
+    assert call1.id != call2.id
+
+    # And translating the 2-turn conversation must preserve both function names
+    multi_turn_request = _request(messages=[
+        ConversationMessage(role="user", content=[TextBlock(text="run a")]),
+        ConversationMessage(role="assistant", content=[call1]),
+        ConversationMessage(role="user", content=[ToolResultBlock(tool_use_id=call1.id, content="result_a")]),
+        ConversationMessage(role="assistant", content=[call2]),
+        ConversationMessage(role="user", content=[ToolResultBlock(tool_use_id=call2.id, content="result_b")]),
+    ])
+    contents = _to_gemini_contents(multi_turn_request)
+    # Check function names on function response parts
+    tool_resp_names = [
+        part.function_response.name
+        for c in contents
+        for part in c.parts
+        if getattr(part, "function_response", None) is not None
+    ]
+    assert tool_resp_names == ["tool_a", "tool_b"]
+

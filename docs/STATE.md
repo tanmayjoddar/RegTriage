@@ -1,16 +1,16 @@
 # RegTriage Run State (updated after every slice)
 
-- Current task: Task 2a - Fix tool-call id collisions in GeminiClient.
+- Current task: Task 2b - Cost accounting: confirm MeteredClient prices tokens per provider, make config-driven per provider/model, label as estimates, fail loudly if missing.
 - Done:
   - Slices 0-11 per `docs/COMPLETION_REPORT.md`.
   - Hostile review round 1 (7 fixes committed).
   - Hostile review round 2 fixes (R1, R2, B1, G1, G2, C1, D1; committed in c9104b9).
-  - Task 1: GeminiClient initial wiring and retry-hint bug fix in `_retry_delay_hint` (tolerates exc.details wrapped/bare and exc.response_json fallback; tests for all shapes green).
+  - Task 1: GeminiClient initial wiring and retry-hint error detail fix (committed in b0c7e77).
+  - Task 2a: Tool-call id collisions fixed with per-client counter / UUID fallback at response time; proven with failing test first (`test_tool_call_ids_unique_across_turns_when_missing`).
 - In progress / Next steps (in order per brief):
   2. Fix suspected defects (prove with failing test first):
-     a. Tool-call id collisions: unique id per call at response time (stable in conversation).
-     b. Cost accounting: config-driven per provider/model pricing, estimated label, fail loudly if model price missing.
-     c. Message roles: function responses role per Google docs/SDK.
+     b. Cost accounting: confirm MeteredClient prices tokens per provider. Make prices config-driven per provider and model, label them as estimates, and fail loudly if a model has no price entry.
+     c. Message roles: function responses role per Google docs/SDK (`role="user"`).
      d. Thought signatures: carry opaque provider state through conversation, echo on function call parts, exclude from redaction mangling and audit text, test round trip.
      e. Re-verify default Gemini model ID against current docs (config-only).
      f. Grep tests for vacuous assertions and remove; prove `test_gemini_triage_redaction_and_audit_parity` non-vacuous.
