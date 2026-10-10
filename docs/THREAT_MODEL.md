@@ -5,7 +5,7 @@
 | Zone | Trust | Examples |
 | --- | --- | --- |
 | Operator config, CLI flags (non-secret), own source | Trusted | `pyproject.toml`, checked-in code |
-| Environment secrets | Trusted but fragile | `ANTHROPIC_API_KEY`, `SLACK_WEBHOOK_URL` (see handling) |
+| Environment secrets | Trusted but fragile | `ANTHROPIC_API_KEY`, `GEMINI_API_KEY`, `SLACK_WEBHOOK_URL` (see handling) |
 | Sim logs, RTL source, testbenches | UNTRUSTED | `results.xml`, `*.log`, `*.v`, cocotb output |
 | Upstream checkout under test | UNTRUSTED | `verilog-pcie` working copies, mutant cases |
 | Model output | UNTRUSTED | tool calls, submitted diagnoses, quotes |
@@ -38,7 +38,7 @@
    tokens, PEM blocks, key=value secrets, quoted JSON pairs, "password is"
    phrases, emails. Model responses and assistant echoes are scrubbed
    before audit logging and before re-sending (tools execute with original
-   arguments; validation uses the original submission). API key travels as
+   arguments; validation uses the original submission). API keys travel as
    `SecretStr` from environment only, never in argv, reports, or audit
    payloads; audit log is 0600 and stores redacted-as-sent payloads, so it
    shows exactly what left the machine. `detect-secrets` runs in pre-commit
@@ -61,12 +61,17 @@
    writes/reads always agree (9 experiments in the verification log).
    Git output decoding is explicit UTF-8 (bytes-cored runner), never
    locale-dependent.
-7. **Supply chain.** Hashed `requirements.lock` (70 entries, all release
-   files), minimal runtime deps (anthropic, pydantic, typer), pinned CI
-   actions (commit SHAs), `pip-audit` in CI (currently clean).
+7. **Supply chain.** Hashed `requirements.lock` (82 packages/entries, all release
+   files), minimal runtime deps (anthropic, google-genai, pydantic, typer), pinned CI
+   actions (commit SHAs), `pip-audit` in CI (clean, 0 known vulnerabilities).
 8. **Markdown/report injection.** All untrusted report text is
    backslash-escaped; JSON relies on `json.dumps` structure; Slack webhook
    URL is https-allowlisted and never appears in errors.
+9. **Provider-specific data privacy and retention.**
+   - **Gemini Free-Tier Data Use**: When using the Google Gemini API with a free-tier API key, Google's Terms of Service permit prompts and responses to be stored, reviewed by human reviewers, and used to train or improve Google models and products. For proprietary RTL repositories, operators MUST either use a Paid Google Gemini Tier (where inputs/outputs are not used to train models) or configure `--offline` mode.
+   - **True Egress Control vs Safety Net**: Regex redaction (`SecretRedactor`) is inherently a best-effort defense-in-depth safety net against accidental cleartext credential leakage; it is NOT a cryptographic or complete Data Loss Prevention (DLP) boundary. The true egress controls are:
+     1. Append-only, unbuffered `audit.jsonl` (mode 0600 on POSIX) capturing every exact byte sequence emitted to the network for independent operator inspection.
+     2. `--offline` / `ReplayClient` flag which guarantees zero network sockets are opened to any external API provider.
 
 ## Out of scope
 

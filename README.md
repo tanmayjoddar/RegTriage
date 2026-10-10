@@ -25,7 +25,14 @@ flowchart LR
 python3.11 -m venv .venv && . .venv/bin/activate
 pip install --require-hashes --no-deps -r requirements.lock
 pip install -e .
+
+# Select provider: "anthropic" (default) or "gemini"
+# For Anthropic:
 export ANTHROPIC_API_KEY="sk-ant-..."
+# For Gemini:
+export REGTRIAGE_PROVIDER="gemini"
+export GEMINI_API_KEY="AIzaSy..."
+
 regtriage validate-config
 regtriage run --repo /path/verilog-pcie --results-xml /path/results.xml --out out/
 ```
@@ -37,16 +44,20 @@ Full ordered commands live in [docs/RUNBOOK.md](docs/RUNBOOK.md).
 - **Boring, explainable code**: small functions, frozen pydantic models at
   every boundary, custom exceptions, `pathlib` only, argv-only subprocess
   with a timeout on every call.
-- **Single model-ID source**: `DEFAULT_MODEL_ID` in `config.py`
-  (`claude-sonnet-5-5`, verified 2026-10-10); `REGTRIAGE_MODEL` overrides.
+- **Provider selection & model IDs**: Config-driven provider selection
+  (`REGTRIAGE_PROVIDER=anthropic` or `gemini`). Default model IDs are defined
+  in `config.py` (`claude-sonnet-5-5` for Anthropic, `gemini-3.8-flash` for Gemini,
+  verified 2026-10-10) with explicit environment overrides (`REGTRIAGE_MODEL` and
+  `REGTRIAGE_GEMINI_MODEL`).
 - **Protocols, not frameworks**: `Executor`, `Parser`, `LlmClient` are
   structural Protocols; `LocalExecutor`/`SlurmExecutor`, parsers, and
-  `AnthropicClient`/`ReplayClient` plug in without inheritance.
+  `AnthropicClient`/`GeminiClient`/`ReplayClient` plug in without inheritance.
 - **Validator over trust**: the agent's citations are machine-checked
   (path, lines, normalized quote, commit history); failures feed back
   verbatim, twice, then `unverified` — never silently dropped or accepted.
-- **Supply chain**: 70-entry hashed lockfile, 3 runtime deps, SHA-pinned CI
-  actions, `pip-audit` in CI, `detect-secrets` in pre-commit.
+- **Supply chain**: 82-entry hashed lockfile, minimal runtime deps (anthropic,
+  google-genai, pydantic, typer), SHA-pinned CI actions, `pip-audit` in CI,
+  `detect-secrets` in pre-commit.
 
 ## Security model
 
@@ -57,8 +68,9 @@ only. Details: [docs/THREAT_MODEL.md](docs/THREAT_MODEL.md).
 
 ## Limitations (honest)
 
-- No live Anthropic calls, sim runs, or eval numbers exist yet — anything
-  that needs them is marked NOT YET RUN BY A HUMAN.
+- No live Anthropic or Gemini calls, sim runs, or eval numbers exist yet — anything
+  that needs them is marked NOT YET RUN BY A HUMAN (including Section 10 of
+  `docs/RUNBOOK.md`).
 - Mutants are syntactic and simpler than real PCIe bugs; heuristic-friendly.
 - Sample UVM/Verilator parsers cover fixtures, not commercial log variety.
 - Threshold default 0.75 is unevaluated on real logs.

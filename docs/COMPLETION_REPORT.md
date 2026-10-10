@@ -8,18 +8,18 @@ Harsh grading: done means built, tested, green locally AND on Linux CI.
 | # | Requirement | Verdict | Proof (file + test) |
 | --- | --- | --- | --- |
 | 0a | Current Sonnet default, override kept, single source | done | `src/regtriage/config.py` (`claude-sonnet-5-5`, verified 2026-10-10); `tests/test_config.py` |
-| 0b | `#nosec` justified with exact rule + reason | done | 11 nosecs, each `Bxxx: reason`; `bandit` clean |
+| 0b | `#nosec` justified with exact rule + reason | done | 12 nosecs, each `Bxxx: reason` (including `# nosec B311` in `gemini.py` for decorrelated backoff jitter); `bandit` clean |
 | 0c | CI actions pinned to SHAs | done | `.github/workflows/ci.yml` (checkout@11bd7190, setup-python@a26af69b); CI green |
 | S1 | No stubs/TODOs/pass/NotImplemented | done | `git grep -n "TODO\|FIXME\|NotImplementedError\|pass$" src` — see notes |
 | S2 | 5 checks per slice + commit + real log | done | `docs/VERIFICATION_LOG.md` (11 sections); one commit per slice |
 | S3 | No fabricated metrics; scripts generate tables | done | README/RESULTS show "not yet run"; `eval/manual_triage.csv` header-only |
-| S4 | Deps: anthropic/pydantic/typer + dev set + hashed lock | done | `pyproject.toml`, `requirements.lock` (70 entries); clean `--require-hashes` install verified |
+| S4 | Deps: anthropic/google-genai/pydantic/typer + dev set + hashed lock | done | `pyproject.toml`, `requirements.lock` (82 entries); clean `--require-hashes` install verified |
 | S5 | 5 interview Q&A per slice | done | `docs/INTERVIEW.md` (45 Q&A across slices 0-11) |
 | T1 | Python 3.11+, src layout, strict types, lint, format | done | `mypy --strict` + `ruff` clean on 57 files, CI too |
 | T2 | pydantic v2 boundaries, small fns, no globals/mutables | done | frozen models everywhere; reviewable |
 | T3 | Custom exceptions from errors.py | done | `src/regtriage/errors.py`; no other exception classes defined |
 | T4 | pathlib only; subprocess argv-only + timeouts | done | `git grep shell=True src` empty; every Popen/run/urlopen has timeout |
-| T5 | LLM client Protocol + Anthropic + Replay (DI) | done | `src/regtriage/agent/`; `tests/test_agent.py` (31 tests) |
+| T5 | LLM client Protocol + Anthropic + Gemini + Replay (DI) | done | `src/regtriage/agent/`; `tests/test_agent.py` and `tests/test_gemini.py` (22 passed, 1 skipped) |
 | M1 | LocalExecutor (parallel bound, timeout, group kill) | done | `runner/local.py`; 12 real-subprocess tests |
 | M2 | SlurmExecutor (parsable, poll, scancel, template) | done | `runner/slurm.py`; shim tests run on Linux CI |
 | M3 | Collect results.xml + logs + exit codes | done | `JobResult` + `CocotbResultsParser`; integration test (skipped here) |
@@ -77,6 +77,7 @@ no stub bodies. Confirmed by inspection, not just grep.
     `detect-secrets audit` pending.
 12. Clean-install proof is Windows clean venv + Linux CI; no other platform
     verified.
+13. No live Gemini API call has ever been made by a human (wire format verified by mock SDK; live opt-in test in `test_live_gemini_two_turn_tool_call` skipped without `GEMINI_API_KEY`; recorded in RUNBOOK.md Section 10).
 
 ## Addendum (2026-10-10, post-audit CI failures)
 
@@ -119,3 +120,25 @@ RED pre-fix, plus variants):
   (silent); innocent dotfiles stay readable.
 Remaining truth: bare high-entropy tokens with no shape markers still pass
 redaction; see THREAT_MODEL "what redaction cannot catch".
+
+## Addendum (2026-10-10, hostile review round 2 & Gemini integration)
+
+Hostile review round 2 uncovered 7 code/design defects and 1 acknowledged limitation, all resolved and tested in `tests/test_hostile_regressions_r2.py` (23 tests):
+- **R1**: `_scrub_response` recursively redacts dictionary keys, tool names, tool IDs, and stop reasons.
+- **R2**: `_scan_quoted` handles backslash-escaped characters in JSON/strings without premature termination.
+- **B1**: Shared evaluation budget remainder enforced globally across arms in `MeteredClient`.
+- **G1**: Server-side cap `_MAX_REGEX_TIMEOUT_SECONDS = 5.0` prevents agent-controlled regex clock.
+- **G2**: Streaming candidate evaluation and 2 MB scan cap `_MAX_TOTAL_SCAN_BYTES` avoid full repository buffering.
+- **D1**: NTFS Alternate Data Streams (`file.txt:stream`) blocked in `_is_denied_name`.
+- **C1**: NUL byte binary detection in evidence validator blocks binary files masquerading as UTF-8.
+- **R3**: Acknowledged inherent limitation: split/obfuscated/bare high-entropy secrets cannot be detected by regex shape matching. Documented in `docs/THREAT_MODEL.md`; true egress control is audit log and `--offline`.
+
+Gemini provider integration (`google-genai`):
+- Added `GeminiClient` implementing `LlmClient` protocol.
+- Fixed retry-delay hint parsing in `_retry_delay_hint` across bare and nested `exc.details` dictionaries.
+- Prevented tool call ID collisions with turn-unique monotonic counter and UUID fallback.
+- Config-driven model pricing estimates (`ModelPriceEstimate`) failing loudly on unpriced models with `ConfigurationError`.
+- Conformed message roles to official Gemini SDK: function responses sent as `role="user"` with `function_response` part and id.
+- Thought signatures captured from response and round-tripped on function-call parts without redaction mangling or audit log leakage.
+- Lockfile updated and hash-pinned to 82 packages; `pip-audit` clean (0 vulnerabilities).
+- Backoff jitter in `gemini.py` annotated with `# nosec B311`: standard pseudo-random number generator used strictly for network retry jitter (decorrelated exponential backoff), not cryptography or security.

@@ -1,6 +1,6 @@
 # RegTriage Run State (updated after every slice)
 
-- Current task: Task 5 - Docs updates (`THREAT_MODEL.md`, `README.md`, `HOSTILE_REVIEW.md`, `VERIFICATION_LOG.md`, `COMPLETION_REPORT.md`).
+- Current task: Task 6 - Final checks suite (ruff check, ruff format --check, mypy --strict, pytest --cov --cov-branch, bandit, pip-audit), push, and confirm CI green.
 - Done:
   - Slices 0-11 per `docs/COMPLETION_REPORT.md`.
   - Hostile review round 1 (7 fixes committed).
@@ -14,6 +14,7 @@
   - Task 2f: Grepped tests for vacuous assertions (none found); proved `test_gemini_triage_redaction_and_audit_parity` non-vacuous by temporarily disabling redaction and showing failure.
   - Task 3: Replaced `test_live_gemini_tiny_prompt` with opt-in `test_live_gemini_two_turn_tool_call` (2-turn round trip). Listed in `docs/RUNBOOK.md` as NOT YET RUN BY A HUMAN (committed in 51c06d1).
   - Task 4: Regenerated hash-pinned `requirements.lock` including `google-genai` and complete transitive closure (82 packages, hashes from PyPI for all platforms); ran `pip-audit` (`No known vulnerabilities found`); verified clean venv install with `pip install --require-hashes -r requirements.lock`.
+  - Task 5: Docs updated: `THREAT_MODEL.md` (Gemini free-tier data policy, audit log and --offline as real egress controls, 82 lockfile packages, GEMINI_API_KEY in trust zones), `README.md` (provider selection, env vars, honest limits, 82 packages), `HOSTILE_REVIEW.md` (both rounds, all findings and status), `VERIFICATION_LOG.md` (real outputs for r2 regressions, Gemini suite, pip-audit, clean venv install, Research Rules external citations), `COMPLETION_REPORT.md` (updated S4 to 82 packages, T5 to Gemini, nosec B311 justification on backoff jitter, unverified claims list updated with live Gemini).
 - In progress / Next steps (in order per brief):
-  5. Update docs (`THREAT_MODEL.md`, `README.md`, `HOSTILE_REVIEW.md`, `VERIFICATION_LOG.md`, `COMPLETION_REPORT.md`). Note `# nosec B311` on backoff jitter and why it is acceptable.
-  6. Final checks: ruff check, ruff format --check, mypy --strict, pytest --cov --cov-branch, bandit, pip-audit; push and confirm CI green.
+  6. Final checks: ruff check, ruff format --check, mypy --strict, pytest --cov --cov-branch, bandit, pip-audit on clean venv; push; confirm CI is green.
+

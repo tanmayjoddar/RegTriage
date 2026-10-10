@@ -1789,3 +1789,140 @@ Proof (all observed, not paraphrased):
 - Local 5 checks re-run after the fix: ruff check ok, ruff format ok
   (29 files), mypy --strict ok (29 files), bandit ok (7 nosecs),
   pytest 124 passed + 2 skipped, coverage 96.15%.
+
+---
+
+## Hostile Review Round 2 Verification (2026-10-10)
+
+Commands run from `D:\Downloads\REG`:
+
+### `pytest tests/test_hostile_regressions_r2.py -v --no-cov`
+```
+============================= test session starts =============================
+platform win32 -- Python 3.11.9, pytest-9.1.1, pluggy-1.6.0 -- D:\Python\python.exe
+cachedir: .pytest_cache
+hypothesis profile 'default'
+rootdir: D:\Downloads\REG
+configfile: pyproject.toml
+plugins: anyio-4.13.0, hypothesis-6.168.5, cov-7.1.0
+collecting ... collected 23 items
+
+tests/test_hostile_regressions_r2.py::test_r1_secret_in_tool_name_reaches_llm_and_audit PASSED [  4%]
+tests/test_hostile_regressions_r2.py::test_r1_secret_dict_key_unscrubbed PASSED [  8%]
+tests/test_hostile_regressions_r2.py::test_r2_json_escaped_quote_fully_redacted PASSED [ 13%]
+tests/test_hostile_regressions_r2.py::test_r2_single_quoted_secret_redacted PASSED [ 17%]
+tests/test_hostile_regressions_r2.py::test_b1_global_budget_not_overshot PASSED [ 21%]
+tests/test_hostile_regressions_r2.py::test_g1_regex_timeout_not_attacker_controlled PASSED [ 26%]
+tests/test_hostile_regressions_r2.py::test_g2_grep_does_not_buffer_whole_corpus PASSED [ 30%]
+tests/test_hostile_regressions_r2.py::test_d1_ads_stream_blocked PASSED  [ 34%]
+tests/test_hostile_regressions_r2.py::test_c1_nul_binary_not_citable PASSED [ 39%]
+tests/test_hostile_regressions_r2.py::test_r1_variant_stop_reason_scrubbed PASSED [ 43%]
+tests/test_hostile_regressions_r2.py::test_r1_variant_evil_id_echo_scrubbed_but_tool_runs PASSED [ 47%]
+tests/test_hostile_regressions_r2.py::test_r2_variant_single_quoted_escaped_quote PASSED [ 52%]
+tests/test_hostile_regressions_r2.py::test_r2_variant_value_with_colon_and_near_miss_key PASSED [ 56%]
+tests/test_hostile_regressions_r2.py::test_b1_variant_shared_usd_blocks_second_arm PASSED [ 60%]
+tests/test_hostile_regressions_r2.py::test_b1_variant_blocked_call_freezes_shared_counters PASSED [ 65%]
+tests/test_hostile_regressions_r2.py::test_g1_variant_grep_args_reject_timeout_field PASSED [ 69%]
+tests/test_hostile_regressions_r2.py::test_g1_variant_schema_hides_timeout_but_grep_works PASSED [ 73%]
+tests/test_hostile_regressions_r2.py::test_g2_variant_fixed_strings_stops_reading_early PASSED [ 78%]
+tests/test_hostile_regressions_r2.py::test_g2_variant_regex_worker_hit_cap_bounded PASSED [ 82%]
+tests/test_hostile_regressions_r2.py::test_c1_variant_worktree_nul_rejected PASSED [ 86%]
+tests/test_hostile_regressions_r2.py::test_c1_variant_nul_outside_window_still_rejected PASSED [ 91%]
+tests/test_hostile_regressions_r2.py::test_d1_variant_colon_dir_denied PASSED [ 95%]
+tests/test_hostile_regressions_r2.py::test_d1_variant_commit_rel_with_colon_denied PASSED [100%]
+
+============================= 23 passed in 2.24s ==============================
+```
+
+---
+
+## Gemini Provider & Research Rules External Verification (2026-10-10)
+
+### External Documentation Ground Truth Citations
+
+Per Research Rules, external API facts were checked against official live documentation:
+1. **Function Calling message roles & schema**:
+   - URL: `https://ai.google.dev/gemini-api/docs/function-calling`
+   - Date: 2026-10-10
+   - Paraphrase: In Google GenAI SDK multi-turn function calling chats, tool responses must be returned as content objects with role="user" and parts containing `FunctionResponse` (`function_response`), matching function name and call `id`.
+2. **Thought Signatures**:
+   - URL: `https://ai.google.dev/gemini-api/docs/thought-signatures` (redirects to `https://ai.google.dev/gemini-api/docs/thinking#signatures`)
+   - Date: 2026-10-10
+   - Paraphrase: Gemini 3 and 2.5 models generate thought signatures on function-call parts that must be preserved and echoed back unchanged on function-call parts on subsequent turns, or requests fail with 4xx errors.
+3. **Model Default**:
+   - URL: `https://ai.google.dev/gemini-api/docs/models`
+   - Date: 2026-10-10
+   - Paraphrase: `gemini-3.8-flash` is Google's recommended General Availability (GA) default model for fast, low-cost multimodal and agentic triage workloads.
+4. **Pricing and Data Privacy**:
+   - URL: `https://ai.google.dev/gemini-api/docs/pricing`
+   - Date: 2026-10-10
+   - Paraphrase: Gemini 3.8 Flash pricing is $0.75 per 1M input tokens and $3.75 per 1M output tokens (rates guaranteed through Dec 31, 2026); Free Tier permits Google to use inputs and outputs for product improvement, whereas Paid Tier enforces customer data privacy.
+
+### Proof of Non-Vacuous Assertions: `test_gemini_triage_redaction_and_audit_parity`
+
+To prove the assertion is non-vacuous, SecretRedactor was temporarily bypassed in `triage_cluster`. Result:
+```
+FAILED tests/test_gemini.py::test_gemini_triage_redaction_and_audit_parity - AssertionError: assert 'AKIAIOSFODNN7EXAMPLE' not in '...'
+```
+The test failed immediately because unredacted log excerpts entered both the outgoing model payload and `audit.jsonl`. Restoring redaction returned the test to GREEN.
+
+### Gemini Provider Test Suite
+
+### `pytest tests/test_gemini.py -v --no-cov`
+```
+============================= test session starts =============================
+platform win32 -- Python 3.11.9, pytest-9.1.1, pluggy-1.6.0 -- D:\Python\python.exe
+cachedir: .pytest_cache
+hypothesis profile 'default'
+rootdir: D:\Downloads\REG
+configfile: pyproject.toml
+plugins: anyio-4.13.0, hypothesis-6.168.5, cov-7.1.0
+collecting ... collected 23 items
+
+tests/test_gemini.py::test_flatten_has_no_refs_and_keeps_shape PASSED    [  4%]
+tests/test_gemini.py::test_request_translation_text_and_tool_result_names PASSED [  8%]
+tests/test_gemini.py::test_forced_submit_uses_any_with_allowed_name PASSED [ 13%]
+tests/test_gemini.py::test_auto_tool_choice_maps_to_auto PASSED          [ 17%]
+tests/test_gemini.py::test_response_usage_maps_to_cost_guard PASSED      [ 21%]
+tests/test_gemini.py::test_metered_client_fails_loudly_on_unpriced_model PASSED [ 26%]
+tests/test_gemini.py::test_function_call_round_trip_with_ids PASSED      [ 30%]
+tests/test_gemini.py::test_unknown_part_shape_is_clean_error PASSED      [ 34%]
+tests/test_gemini.py::test_retry_then_success_on_429 PASSED              [ 39%]
+tests/test_gemini.py::test_retry_hint_honored_and_capped PASSED          [ 43%]
+tests/test_gemini.py::test_retry_hint_bare_error_dict PASSED             [ 47%]
+tests/test_gemini.py::test_retry_hint_response_json_fallback PASSED      [ 52%]
+tests/test_gemini.py::test_non_retryable_fails_without_sleep PASSED      [ 56%]
+tests/test_gemini.py::test_retries_bounded PASSED                        [ 60%]
+tests/test_gemini.py::test_rejects_empty_key_and_bad_params PASSED       [ 65%]
+tests/test_gemini.py::test_key_travels_only_into_factory PASSED          [ 69%]
+tests/test_gemini.py::test_gemini_triage_redaction_and_audit_parity PASSED [ 73%]
+tests/test_gemini.py::test_provider_config_from_env PASSED               [ 78%]
+tests/test_gemini.py::test_provider_rejects_unknown PASSED               [ 82%]
+tests/test_gemini.py::test_live_gemini_two_turn_tool_call SKIPPED (live
+Gemini test needs GEMINI_API_KEY)                                        [ 86%]
+tests/test_gemini.py::test_replay_client_still_works PASSED              [ 91%]
+tests/test_gemini.py::test_tool_call_ids_unique_across_turns_when_missing PASSED [ 95%]
+tests/test_gemini.py::test_thought_signature_round_trip_preserved_and_unmangled_and_not_in_audit PASSED [100%]
+
+======================== 22 passed, 1 skipped in 1.17s ========================
+```
+
+---
+
+## Lockfile Regeneration & Clean Venv Proof (2026-10-10)
+
+Regenerated `requirements.lock` including `google-genai` and its 12 transitive dependencies across linux, win32, and darwin on Python 3.11 (total 82 packages).
+
+### `python -m pip_audit -r requirements.lock`
+```
+No known vulnerabilities found
+Exit: 0
+```
+
+### Clean Venv `--require-hashes` Verification
+Tested clean virtual environment installation from the regenerated lockfile:
+```
+python -m pip install --require-hashes --no-deps -r requirements.lock
+Returncode: 0
+```
+Verified zero dependency resolution or hash mismatches across all 82 packages.
