@@ -33,6 +33,6 @@
   COMMITTED (`*.log` gitignore swallowed them; `git add` warned nothing).
   Fix-2 (dash) was real but latent. Fix: `!tests/fixtures/*.log` negation
   + tracked fixtures. Deadline theory retracted in the log (hardening kept).
-  Pushing + polling CI.
+  CI run #15 (dce68f7): conclusion success — GREEN on all jobs.
 - Open issues: live LLM/sim/eval/INFRA runs NOT YET RUN; manual CSV empty;
   threshold unevaluated; platform-gated skips for Linux CI.
