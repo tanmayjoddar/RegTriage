@@ -42,6 +42,8 @@ def _read_window(path: Path, evidence: Evidence) -> str:
     except OSError as exc:
         raise _fail(evidence, f"cannot read file: {exc}") from exc
     lines = data.decode("utf-8", errors="replace").splitlines()
+    if any("\x00" in line for line in lines):
+        raise _fail(evidence, f"file contains NUL bytes (binary), not citable text: {path.name}")
     if evidence.line_end > len(lines):
         raise _fail(
             evidence,
@@ -115,6 +117,8 @@ def _validate_commit_citation(
         blob = raw_blob.decode("utf-8")
     except UnicodeDecodeError as exc:
         raise _fail(evidence, f"committed file is not valid UTF-8: {rel}") from exc
+    if "\x00" in blob:
+        raise _fail(evidence, f"committed file contains NUL bytes (binary), not citable text: {rel}")
     lines = blob.splitlines()
     if evidence.line_end > len(lines):
         raise _fail(

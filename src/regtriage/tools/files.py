@@ -4,6 +4,7 @@ import json
 import os
 import subprocess  # nosec B404: regex worker spawn is the tool's job; argv lists only, never shell.
 import sys
+from collections.abc import Generator
 from pathlib import Path
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -25,6 +26,8 @@ _MAX_MATCH_LINE_CHARS = 20_000
 _MAX_HIT_TEXT_CHARS = 500
 _CHILD_HIT_CAP = 2000
 _DEFAULT_REGEX_TIMEOUT_SECONDS = 5.0
+_MAX_REGEX_TIMEOUT_SECONDS = 5.0
+_MAX_TOTAL_SCAN_BYTES = 2_000_000
 _SKIP_DIR_NAMES = frozenset({".git", "__pycache__", ".venv", "node_modules"})
 
 # Regex matching runs in a sacrificial child process (never the agent host),
@@ -161,19 +164,21 @@ def _check_pattern(pattern: str, regex_timeout_seconds: float) -> None:
         )
 
 
-def _collect_candidates(start: Path, resolved_root: Path) -> list[tuple[str, list[str]]]:
-    """Walk files under `start`, returning (relpath, lines) per readable file.
+def _iter_candidates(start: Path, resolved_root: Path) -> Generator[tuple[str, list[str]], None, None]:
+    """Yield (relpath, lines) per readable file under `start`.
 
-    Same skips as before: pruned dirs, outside symlinks, non-files,
-    oversized and binary files. Bounded by _MAX_FILES_SCANNED.
+    Same skips as before: pruned dirs, outside symlinks, denied names,
+    non-files, oversized and binary files. Bounded by _MAX_FILES_SCANNED
+    AND _MAX_TOTAL_SCAN_BYTES, so one grep call can never buffer the whole
+    corpus for the regex child: at most ~2 MB of file bytes go over stdin.
     """
-    candidates: list[tuple[str, list[str]]] = []
     scanned = 0
+    total_bytes = 0
     for dirpath, dirnames, filenames in os.walk(start, followlinks=False):
         dirnames[:] = [d for d in dirnames if d not in _SKIP_DIR_NAMES]
         for name in sorted(filenames):
-            if scanned >= _MAX_FILES_SCANNED:
-                return candidates
+            if scanned >= _MAX_FILES_SCANNED or total_bytes >= _MAX_TOTAL_SCAN_BYTES:
+                return
             candidate = (Path(dirpath) / name).resolve()
             if candidate != resolved_root and resolved_root not in candidate.parents:
                 continue
@@ -181,8 +186,14 @@ def _collect_candidates(start: Path, resolved_root: Path) -> list[tuple[str, lis
                 continue
             if not candidate.is_file():
                 continue
-            if candidate.stat().st_size > _MAX_FILE_SCAN_BYTES:
+            try:
+                size = candidate.stat().st_size
+            except OSError:
                 continue
+            if size > _MAX_FILE_SCAN_BYTES:
+                continue
+            if total_bytes + size > _MAX_TOTAL_SCAN_BYTES:
+                return
             scanned += 1
             try:
                 data = candidate.read_bytes()
@@ -190,30 +201,42 @@ def _collect_candidates(start: Path, resolved_root: Path) -> list[tuple[str, lis
                 continue
             if b"\0" in data[:8192]:
                 continue
+            total_bytes += len(data)
             rel = candidate.relative_to(resolved_root).as_posix()
             lines = [
                 raw.decode("utf-8", errors="replace").rstrip("\r\n") for raw in data.split(b"\n")
             ]
-            candidates.append((rel, lines))
-    return candidates
+            yield (rel, lines)
+
+
+def _collect_candidates(start: Path, resolved_root: Path) -> list[tuple[str, list[str]]]:
+    """Walk files under `start`, returning (relpath, lines) per readable file.
+
+    Bounded collector over _iter_candidates; the fixed-string path streams
+    instead so it can stop early at the hit cap.
+    """
+    return list(_iter_candidates(start, resolved_root))
 
 
 def _run_regex_worker(
     pattern: str,
     candidates: list[tuple[str, list[str]]],
     timeout_seconds: float,
+    hit_cap: int = _CHILD_HIT_CAP,
 ) -> list[GrepHit]:
     """Match one regex in a sacrificial child killed on timeout.
 
     The child receives file lines over stdin and returns JSON hits on
-    stdout. Any shape is allowed in; catastrophic ones die by the clock.
+    stdout. `hit_cap` bounds the child's output (callers pass max_results);
+    catastrophic patterns die by the clock.
     """
+    hit_cap = max(1, min(hit_cap, _CHILD_HIT_CAP))
     payload = json.dumps(
         {
             "pattern": pattern,
             "files": [lines for _, lines in candidates],
             "line_cap": _MAX_MATCH_LINE_CHARS,
-            "hit_cap": _CHILD_HIT_CAP,
+            "hit_cap": hit_cap,
         }
     )
     try:
@@ -297,6 +320,8 @@ def grep_source(
             violation_type="invalid_range",
         )
     _check_pattern(pattern, regex_timeout_seconds)
+    # Internal callers only: clamp any explicit timeout to the server max.
+    timeout_seconds = min(regex_timeout_seconds, _MAX_REGEX_TIMEOUT_SECONDS)
     base = resolve_within_root(root, path_prefix) if path_prefix is not None else None
     resolved_root = resolve_within_root(root, ".")
     start = base if base is not None else resolved_root
@@ -304,14 +329,16 @@ def grep_source(
         raise ParsingError(
             f"search base is not a directory: {path_prefix}", source_path=path_prefix
         )
-    candidates = _collect_candidates(start, resolved_root)
     if fixed_strings:
         hits: list[GrepHit] = []
-        for rel, lines in candidates:
+        # Stream file by file and stop at the cap: files past the cap are
+        # never even read (early exit).
+        for rel, lines in _iter_candidates(start, resolved_root):
             for lineno, text in enumerate(lines, start=1):
                 if len(hits) >= max_results:
                     return hits
                 if pattern in text[:_MAX_MATCH_LINE_CHARS]:
                     hits.append(GrepHit(path=rel, line=lineno, text=text[:_MAX_HIT_TEXT_CHARS]))
         return hits
-    return _run_regex_worker(pattern, candidates, regex_timeout_seconds)[:max_results]
+    candidates = _collect_candidates(start, resolved_root)
+    return _run_regex_worker(pattern, candidates, timeout_seconds, hit_cap=max_results)[:max_results]

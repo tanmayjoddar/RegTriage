@@ -35,10 +35,16 @@ def denied_name_reason(candidate: Path) -> str | None:
     """Return why a path is unservable, or None when its name is allowed.
 
     Pure name rules, root-independent: any `.git` part (file or directory,
-    e.g. worktree pointers), `.env` files, and private key material.
+    e.g. worktree pointers), `.env` files, private key material, and — on
+    every platform — any path component containing `:` (NTFS alternate
+    data streams like `notes.txt:secret`; the drive/root anchor itself is
+    exempt). Dotfiles outside this list (.gitignore, configs) stay
+    readable.
     """
     if any(part in _DENIED_DIR_PARTS for part in candidate.parts):
         return ".git internals are off limits to read tools"
+    if any(":" in part for part in candidate.parts[1:]):
+        return "stream/drive syntax is off limits to read tools"
     name = candidate.name
     if name in _DENIED_BASENAMES or name.startswith(_DENIED_BASENAME_PREFIXES):
         return "environment files are off limits to read tools"

@@ -7,15 +7,94 @@ from collections.abc import Sequence
 from typing import Any
 
 _SECRET_PLACEHOLDER = "[REDACTED_SECRET]"  # nosec B105: redaction placeholder token, not a real password or secret.
-_JSON_SECRET_TOKEN = "[REDACTED_JSON_SECRET]"  # nosec B105: redaction placeholder token, not a real password or secret.
 _PASSWORD_PHRASE_TOKEN = "[REDACTED_PASSWORD_PHRASE]"  # nosec B105: redaction placeholder token, not a real password or secret.
 
 # Tokens whose replacement is not the token itself map to an explicit
 # substitution template here; every other token replaces the whole match.
 _SPECIAL_REPLACEMENTS: dict[str, str] = {
-    _JSON_SECRET_TOKEN: '"\\1": "[REDACTED_SECRET]"',
     _PASSWORD_PHRASE_TOKEN: "password is [REDACTED_SECRET]",
 }
+
+# A JSON-ish key counts as secret-bearing when the whole key matches.
+_SECRET_KEY_RE = re.compile(r"(?:api[-_]?key|secret|token|password)[A-Za-z0-9_-]*\Z", re.IGNORECASE)
+
+_WS_CHARS = " \t\r\n"
+
+
+def _scan_quoted(text: str, start: int) -> tuple[str, int] | None:
+    """Parse one quoted string starting at `start` (a `"` or `'`).
+
+    Backslash escapes are honored, so an escaped quote never ends the
+    string early. Returns (unescaped value, index just past the closer),
+    or None when unterminated.
+    """
+    quote = text[start]
+    out: list[str] = []
+    i = start + 1
+    while i < len(text):
+        char = text[i]
+        if char == "\\" and i + 1 < len(text):
+            out.append(text[i + 1])
+            i += 2
+            continue
+        if char == quote:
+            return "".join(out), i + 1
+        out.append(char)
+        i += 1
+    return None
+
+
+def _redact_json_pairs(text: str) -> str:
+    """Redact `"key": "value"` / `'key': 'value'` pairs with secret keys.
+
+    Small tokenizer, not a regex: string literals are scanned with escape
+    handling, so values containing escaped quotes are fully consumed and
+    single-quoted pairs match too. Non-pair literals are copied verbatim
+    (O(n) total: each literal is scanned once). The key keeps its original
+    quoting; the value becomes `"[REDACTED_SECRET]"`.
+    """
+    out: list[str] = []
+    i = 0
+    while i < len(text):
+        char = text[i]
+        if char not in "\"'":
+            out.append(char)
+            i += 1
+            continue
+        parsed = _scan_quoted(text, i)
+        if parsed is None:
+            out.append(char)
+            i += 1
+            continue
+        key, key_end = parsed
+        if _SECRET_KEY_RE.match(key) is None:
+            out.append(text[i:key_end])
+            i = key_end
+            continue
+        j = key_end
+        while j < len(text) and text[j] in _WS_CHARS:
+            j += 1
+        if j >= len(text) or text[j] != ":":
+            out.append(text[i:key_end])
+            i = key_end
+            continue
+        j += 1
+        while j < len(text) and text[j] in _WS_CHARS:
+            j += 1
+        if j >= len(text) or text[j] not in "\"'":
+            out.append(text[i:key_end])
+            i = key_end
+            continue
+        value_parsed = _scan_quoted(text, j)
+        if value_parsed is None:
+            out.append(text[i:key_end])
+            i = key_end
+            continue
+        _, value_end = value_parsed
+        out.append(text[i:key_end])
+        out.append(': "[REDACTED_SECRET]"')
+        i = value_end
+    return "".join(out)
 
 _DEFAULT_REDACTION_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
     (
@@ -48,13 +127,6 @@ _DEFAULT_REDACTION_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
     (
         "[REDACTED_JWT]",
         re.compile(r"\beyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\b", re.ASCII),
-    ),
-    (
-        _JSON_SECRET_TOKEN,
-        re.compile(
-            r'"((?:api[-_]?key|secret|token|password)[A-Za-z0-9_-]*)"\s*:\s*"[^"]+"',
-            re.IGNORECASE,
-        ),
     ),
     (
         _PASSWORD_PHRASE_TOKEN,
@@ -90,7 +162,9 @@ class SecretRedactor:
         if not text:
             return text
 
-        result = text
+        # JSON-ish pairs first: the tokenizer consumes whole quoted values
+        # (escapes included), so later key=value rules see canonical text.
+        result = _redact_json_pairs(text)
         for token, pattern in self._patterns:
             special = _SPECIAL_REPLACEMENTS.get(token)
             if special is not None:
