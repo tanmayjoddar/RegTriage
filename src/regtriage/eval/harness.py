@@ -125,9 +125,20 @@ class MeteredClient:
 
     Ceilings are checked BEFORE forwarding, so a blocked call never leaves
     the machine and never spends. Breaches raise BudgetExceeded.
+
+    Pass the eval-wide `shared` budget and every call additionally checks
+    the shared remainder first, so N arms can never jointly overshoot the
+    global ceiling: the per-arm ceilings bound one arm, the shared budget
+    bounds the whole run. Blocked calls leave all counters untouched.
     """
 
-    def __init__(self, inner: LlmClient, max_calls: int, max_usd: float) -> None:
+    def __init__(
+        self,
+        inner: LlmClient,
+        max_calls: int,
+        max_usd: float,
+        shared: "_Budget | None" = None,
+    ) -> None:
         if max_calls < 1:
             raise ConfigurationError(
                 f"max_calls must be at least 1, got {max_calls}", parameter_name="max_calls"
@@ -139,6 +150,7 @@ class MeteredClient:
         self._inner = inner
         self._max_calls = max_calls
         self._max_usd = max_usd
+        self._shared = shared
         self.llm_calls = 0
         self.input_tokens = 0
         self.output_tokens = 0
@@ -159,12 +171,23 @@ class MeteredClient:
             raise BudgetExceeded(f"cost budget exceeded (${self.usd:.4f} >= ${max_usd:.2f})")
 
     def create_message(self, request: LlmRequest) -> LlmResponse:
-        """Block over-budget calls before sending, then meter the response."""
+        """Block over-budget calls before sending, then meter the response.
+
+        When bound to a shared budget, the shared counters move on every
+        send, so the next call — in this arm or the next — sees the true
+        global remainder. Blocked calls leave all counters untouched.
+        """
         self.check_budget(self._max_calls, self._max_usd)
+        if self._shared is not None:
+            self._shared.check(self._max_calls, self._max_usd)
+            self._shared.llm_calls += 1
         self.llm_calls += 1
         response = self._inner.create_message(request)
         self.input_tokens += response.input_tokens
         self.output_tokens += response.output_tokens
+        if self._shared is not None:
+            self._shared.input_tokens += response.input_tokens
+            self._shared.output_tokens += response.output_tokens
         return response
 
 
@@ -352,7 +375,9 @@ def run_eval(
         try:
             for arm, skip in (("no_validator", True), ("full", False)):
                 budget.check(config.max_llm_calls, config.max_cost_usd)
-                metered = MeteredClient(make_client(), config.max_llm_calls, config.max_cost_usd)
+                metered = MeteredClient(
+                    make_client(), config.max_llm_calls, config.max_cost_usd, shared=budget
+                )
                 captured: list[Diagnosis] = []
                 agent_config = RegTriageConfig(
                     workspace_root=case,
@@ -372,7 +397,7 @@ def run_eval(
                     )
                 finally:
                     agent_seconds.append(time.monotonic() - started)
-                budget.absorb(metered)
+                # No absorb: the shared budget already moved on every send.
                 budget.check(config.max_llm_calls, config.max_cost_usd)
                 before, _ = fabrication_rates(captured, diagnosis, case)
                 _, after = fabrication_rates([], diagnosis, None)

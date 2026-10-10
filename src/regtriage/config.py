@@ -3,7 +3,7 @@
 import os
 from collections.abc import Mapping
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import (
     BaseModel,
@@ -23,6 +23,12 @@ from regtriage.errors import ConfigurationError
 # on 2026-10-10: the current Sonnet model is Claude Sonnet 5.5 with Claude API
 # model ID "claude-sonnet-5-5" (Sonnet 5 is legacy). Override with REGTRIAGE_MODEL.
 DEFAULT_MODEL_ID = "claude-sonnet-5-5"
+
+# Default Gemini model ID if not explicitly configured. Verified against
+# https://ai.google.dev/gemini-api/docs/models on 2026-10-10: the GA default
+# for new agent work is Gemini 3.8 Flash. Config-only: override with
+# REGTRIAGE_GEMINI_MODEL; never hardcode elsewhere.
+DEFAULT_GEMINI_MODEL_ID = "gemini-3.8-flash"
 
 
 class RegTriageConfig(BaseModel):
@@ -46,9 +52,21 @@ class RegTriageConfig(BaseModel):
         default=None,
         description="Anthropic API key, populated strictly from ANTHROPIC_API_KEY env",
     )
+    gemini_api_key: SecretStr | None = Field(
+        default=None,
+        description="Gemini API key, populated strictly from GEMINI_API_KEY/GOOGLE_API_KEY env",
+    )
+    provider: Literal["anthropic", "gemini"] = Field(
+        default="anthropic",
+        description="LLM provider selected via REGTRIAGE_PROVIDER environment variable",
+    )
     model_id: str = Field(
         default=DEFAULT_MODEL_ID,
         description="Model ID configured via REGTRIAGE_MODEL environment variable or CLI",
+    )
+    gemini_model_id: str = Field(
+        default=DEFAULT_GEMINI_MODEL_ID,
+        description="Gemini model ID configured via REGTRIAGE_GEMINI_MODEL environment variable",
     )
     max_agent_steps: int = Field(
         default=8,
@@ -154,6 +172,8 @@ class RegTriageConfig(BaseModel):
         data = self.model_dump()
         if self.anthropic_api_key is not None:
             data["anthropic_api_key"] = "[MASKED_KEY]"
+        if self.gemini_api_key is not None:
+            data["gemini_api_key"] = "[MASKED_KEY]"
         if self.slack_webhook_url is not None:
             data["slack_webhook_url"] = "[MASKED_WEBHOOK]"
         # Convert Path objects to string for serializability
@@ -176,14 +196,26 @@ def load_config(
     if api_key_str and api_key_str.strip():
         raw_data["anthropic_api_key"] = SecretStr(api_key_str.strip())
 
+    gemini_key_str = source_env.get("GEMINI_API_KEY") or source_env.get("GOOGLE_API_KEY")
+    if gemini_key_str and gemini_key_str.strip():
+        raw_data["gemini_api_key"] = SecretStr(gemini_key_str.strip())
+
     slack_url = source_env.get("SLACK_WEBHOOK_URL")
     if slack_url and slack_url.strip():
         raw_data["slack_webhook_url"] = SecretStr(slack_url.strip())
 
     # Environment variables
+    provider_env = source_env.get("REGTRIAGE_PROVIDER")
+    if provider_env and provider_env.strip():
+        raw_data["provider"] = provider_env.strip().lower()
+
     model_env = source_env.get("REGTRIAGE_MODEL")
     if model_env and model_env.strip():
         raw_data["model_id"] = model_env.strip()
+
+    gemini_model_env = source_env.get("REGTRIAGE_GEMINI_MODEL")
+    if gemini_model_env and gemini_model_env.strip():
+        raw_data["gemini_model_id"] = gemini_model_env.strip()
 
     workspace_env = source_env.get("REGTRIAGE_WORKSPACE_ROOT")
     if workspace_env and workspace_env.strip():

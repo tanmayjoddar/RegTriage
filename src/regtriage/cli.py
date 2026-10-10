@@ -9,6 +9,7 @@ import typer
 from pydantic import SecretStr
 
 from regtriage.agent import AnthropicClient, Diagnosis, LlmClient, ReplayClient, triage_cluster
+from regtriage.agent.gemini import GeminiClient
 from regtriage.audit import AuditLogger
 from regtriage.config import RegTriageConfig, load_config
 from regtriage.errors import ConfigurationError, RegTriageError
@@ -40,6 +41,35 @@ def _make_eval_client(offline: bool, api_key: SecretStr | None) -> LlmClient:
     return AnthropicClient(api_key)
 
 
+def _make_gemini_eval_client(offline: bool, api_key: SecretStr | None) -> LlmClient:
+    """Replay for offline/keyless runs, live Gemini client otherwise."""
+    if offline or api_key is None:
+        return ReplayClient([])
+    return GeminiClient(api_key)
+
+
+def _make_provider_client(config: RegTriageConfig, offline: bool) -> LlmClient:
+    """Build the live client for the configured provider (no network here)."""
+    if offline:
+        return ReplayClient([])
+    if config.provider == "gemini":
+        if config.gemini_api_key is None:
+            typer.echo("set GEMINI_API_KEY (or GOOGLE_API_KEY) or use --offline", err=True)
+            raise typer.Exit(code=2)
+        return GeminiClient(config.gemini_api_key)
+    if config.anthropic_api_key is None:
+        typer.echo("set ANTHROPIC_API_KEY or use --offline", err=True)
+        raise typer.Exit(code=2)
+    return AnthropicClient(config.anthropic_api_key)
+
+
+def _active_model_id(config: RegTriageConfig) -> str:
+    """Return the model id for the configured provider (config-only ids)."""
+    if config.provider == "gemini":
+        return config.gemini_model_id
+    return config.model_id
+
+
 def _load_config_or_exit(overrides: dict[str, Any] | None = None) -> RegTriageConfig:
     """Load config; print the problem and exit 2 on failure."""
     try:
@@ -69,19 +99,16 @@ def run(
     config = _load_config_or_exit(
         {"repo_path": repo, "results_xml_path": results_xml, "offline_mode": offline}
     )
+    # Requests carry config.model_id, so point it at the active provider's
+    # config-only model id (reports and audit stay consistent too).
+    config = config.model_copy(update={"model_id": _active_model_id(config)})
     configure_logging(config.log_level)
     root = config.repo_path
     assert root is not None
     failures = CocotbResultsParser().parse(config.results_xml_path or results_xml)
     clusters = cluster_failures(failures, config.similarity_threshold)
-    client: LlmClient
-    if offline:
-        client = ReplayClient([])
-    elif config.anthropic_api_key is None:
-        typer.echo("set ANTHROPIC_API_KEY or use --offline", err=True)
-        raise typer.Exit(code=2)
-    else:
-        client = AnthropicClient(config.anthropic_api_key)
+    client = _make_provider_client(config, offline)
+    model_id = config.model_id
     audit = AuditLogger(audit_log or (out / "audit.jsonl"))
     diagnoses: dict[str, Diagnosis] = {}
     for cluster in clusters:
@@ -89,7 +116,7 @@ def run(
             client=client, config=config, root=root, cluster=cluster, audit=audit, offline=offline
         )
     out.mkdir(parents=True, exist_ok=True)
-    payload = build_json_report(clusters, diagnoses, config.model_id)
+    payload = build_json_report(clusters, diagnoses, model_id)
     (out / "run.json").write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
     markdown = render_markdown(payload)
     (out / "report.md").write_text(markdown, encoding="utf-8")
@@ -148,7 +175,7 @@ def eval(
         mutant_count=mutants,
         max_llm_calls=max_llm_calls,
         max_cost_usd=max_cost,
-        model_id=config.model_id,
+        model_id=_active_model_id(config),
         similarity_threshold=config.similarity_threshold,
         max_agent_steps=config.max_agent_steps,
         token_ceiling=config.token_ceiling,
@@ -159,6 +186,8 @@ def eval(
     simulate = make_simulate(executor, harness_config.sim_timeout_seconds)
 
     def factory() -> LlmClient:
+        if config.provider == "gemini":
+            return _make_gemini_eval_client(offline, config.gemini_api_key)
         return _make_eval_client(offline, config.anthropic_api_key)
 
     try:

@@ -15,6 +15,10 @@ GREP_SOURCE = "grep_source"
 GIT_BLAME = "git_blame"
 GIT_LOG = "git_log"
 
+# Server-side regex kill clock. The model never sees or sets this: the
+# timeout is fixed here so a compromised model cannot stretch it.
+SERVER_REGEX_TIMEOUT_SECONDS = 5.0
+
 
 class ReadLogArgs(BaseModel):
     """Validated arguments for the read_log_lines tool."""
@@ -27,7 +31,12 @@ class ReadLogArgs(BaseModel):
 
 
 class GrepArgs(BaseModel):
-    """Validated arguments for the grep_source tool."""
+    """Validated arguments for the grep_source tool.
+
+    `regex_timeout_seconds` is deliberately absent: the kill clock is a
+    server-side constant (SERVER_REGEX_TIMEOUT_SECONDS), never a
+    model-controlled argument.
+    """
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
@@ -35,7 +44,6 @@ class GrepArgs(BaseModel):
     path_prefix: str | None = None
     max_results: int = Field(default=50, ge=1)
     fixed_strings: bool = True
-    regex_timeout_seconds: float = Field(default=5.0, gt=0)
 
 
 class BlameArgs(BaseModel):
@@ -95,7 +103,6 @@ def agent_tool_schemas() -> list[dict[str, Any]]:
                 "path_prefix": {"type": "string"},
                 "max_results": {"type": "integer", "default": 50},
                 "fixed_strings": {"type": "boolean", "default": True},
-                "regex_timeout_seconds": {"type": "number", "default": 5.0},
             },
             ["pattern"],
         ),
@@ -152,7 +159,7 @@ class ToolRuntime:
                 grep_args.path_prefix,
                 grep_args.max_results,
                 grep_args.fixed_strings,
-                grep_args.regex_timeout_seconds,
+                SERVER_REGEX_TIMEOUT_SECONDS,
             )
             return "\n".join(f"{hit.path}:{hit.line}:{hit.text}" for hit in hits)
         if name == GIT_BLAME:

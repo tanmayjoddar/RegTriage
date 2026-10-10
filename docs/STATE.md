@@ -1,21 +1,20 @@
 # RegTriage Run State (updated after every slice)
 
-- Last completed: hostile review response — all 7 findings fixed, one
-  commit each (1c59e5e, f7c7353, 6d059e1, 208f0c3, 217adc1, ce77f28,
-  76e950c), plus evidence-docstring fix (e9cae0c).
-  CI run #19 (docs commit d14fc83): conclusion success — GREEN on all jobs
-  with all fixes in. No existing test weakened (3 grep tests moved to
-  explicit opt-in with identical assertions; 2 commit tests moved to
-  meaningful windows — both flagged in the log as required adaptations).
-- What is done: `tests/test_hostile_regressions.py` (46 tests: probes shown
-  RED pre-fix + variants); BudgetExceeded pre-send guard; widened redaction;
-  response/echo scrubbing with exact-egress audit; fixed-string grep +
-  killable regex child (sniffing deleted); GIT_* scrub + config isolation
-  (NOSYSTEM deviation documented); blob-window commit citations + bytes-core
-  git runner; denied names (.git/.env/keys). 264 passed + 11 skipped
-  (Windows, 94.68%), 274 + 1 (WSL Linux). All 5 checks green.
-  COMPLETION_REPORT rows E6/M6/M8/M9/C4 corrected to PARTIALLY-then-FIXED;
-  THREAT_MODEL updated incl. "what redaction cannot catch"; INTERVIEW +5.
-- Exact next step: push docs + poll CI to green, then final summary to user.
-  Human-only backlog unchanged (RUNBOOK): toolchain, baseline, API key,
-  eval numbers, manual timing, Slurm/NFS/systemd, secrets audit.
+- Current task: Task 2a - Fix tool-call id collisions in GeminiClient.
+- Done:
+  - Slices 0-11 per `docs/COMPLETION_REPORT.md`.
+  - Hostile review round 1 (7 fixes committed).
+  - Hostile review round 2 fixes (R1, R2, B1, G1, G2, C1, D1; committed in c9104b9).
+  - Task 1: GeminiClient initial wiring and retry-hint bug fix in `_retry_delay_hint` (tolerates exc.details wrapped/bare and exc.response_json fallback; tests for all shapes green).
+- In progress / Next steps (in order per brief):
+  2. Fix suspected defects (prove with failing test first):
+     a. Tool-call id collisions: unique id per call at response time (stable in conversation).
+     b. Cost accounting: config-driven per provider/model pricing, estimated label, fail loudly if model price missing.
+     c. Message roles: function responses role per Google docs/SDK.
+     d. Thought signatures: carry opaque provider state through conversation, echo on function call parts, exclude from redaction mangling and audit text, test round trip.
+     e. Re-verify default Gemini model ID against current docs (config-only).
+     f. Grep tests for vacuous assertions and remove; prove `test_gemini_triage_redaction_and_audit_parity` non-vacuous.
+  3. Replace `test_live_gemini_tiny_prompt` with opt-in live test (2-turn round trip).
+  4. Regenerate hash-pinned `requirements.lock` including `google-genai` and run `pip-audit`.
+  5. Update docs (`THREAT_MODEL.md`, `README.md`, `HOSTILE_REVIEW.md`, `VERIFICATION_LOG.md`, `COMPLETION_REPORT.md`).
+  6. Final checks: ruff check, ruff format --check, mypy --strict, pytest --cov --cov-branch, bandit, pip-audit; push and confirm CI green.

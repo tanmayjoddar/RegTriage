@@ -51,22 +51,38 @@ def _wrap_untrusted(text: str) -> str:
 
 
 def _scrub_value(value: Any, scrubber: SecretRedactor) -> Any:
-    """Redact strings inside arbitrary JSON-ish structures, preserving types."""
+    """Redact strings inside arbitrary JSON-ish structures, preserving types.
+
+    Every string is scrubbed wherever it sits: values, dict keys, tool
+    names/ids, and stop reasons. Dict keys stay strings (redaction tokens
+    are strings), tuples keep their type; non-string scalars pass through.
+    """
     if isinstance(value, str):
         return scrubber.redact(value)
     if isinstance(value, dict):
-        return {key: _scrub_value(item, scrubber) for key, item in value.items()}
+        return {_scrub_key(key, scrubber): _scrub_value(item, scrubber) for key, item in value.items()}
     if isinstance(value, list):
         return [_scrub_value(item, scrubber) for item in value]
+    if isinstance(value, tuple):
+        return tuple(_scrub_value(item, scrubber) for item in value)
     return value
 
 
-def _scrub_response(response: LlmResponse, scrubber: SecretRedactor) -> LlmResponse:
-    """Return a copy safe to log and re-send: text redacted, tool args scrubbed.
+def _scrub_key(key: Any, scrubber: SecretRedactor) -> Any:
+    """Redact a dict key when it is a string; leave other keys untouched."""
+    if isinstance(key, str):
+        return scrubber.redact(key)
+    return key
 
-    Tools still execute with the ORIGINAL arguments (local execution); only
-    what leaves the machine — audit records and re-sent messages — is
-    scrubbed. Validation likewise uses the original submission.
+
+def _scrub_response(response: LlmResponse, scrubber: SecretRedactor) -> LlmResponse:
+    """Return a copy safe to log and re-send: all strings scrubbed.
+
+    Text, tool names, tool ids, tool arguments (keys and values), and the
+    stop reason are redacted. Tools still execute with the ORIGINAL
+    arguments (local execution); only what leaves the machine — audit
+    records and re-sent messages — is scrubbed. Validation likewise uses
+    the original submission.
     """
     blocks: list[TextBlock | ToolUseBlock] = []
     for block in response.content:
@@ -74,8 +90,17 @@ def _scrub_response(response: LlmResponse, scrubber: SecretRedactor) -> LlmRespo
             blocks.append(TextBlock(text=scrubber.redact(block.text)))
         else:
             scrubbed = _scrub_value(block.input, scrubber)
-            blocks.append(block.model_copy(update={"input": scrubbed}))
-    return response.model_copy(update={"content": blocks})
+            assert isinstance(scrubbed, dict)
+            blocks.append(
+                block.model_copy(
+                    update={
+                        "name": scrubber.redact(block.name),
+                        "id": scrubber.redact(block.id),
+                        "input": scrubbed,
+                    }
+                )
+            )
+    return response.model_copy(update={"content": blocks, "stop_reason": scrubber.redact(response.stop_reason)})
 
 
 def _failed_diagnosis(cluster: Cluster, reason: str) -> Diagnosis:
@@ -224,7 +249,7 @@ def triage_cluster(
         if forced:
             forced_used = True
 
-        reads = [
+        orig_reads = [
             block
             for block in response.content
             if isinstance(block, ToolUseBlock) and block.name != SUBMIT_DIAGNOSIS
@@ -234,13 +259,24 @@ def triage_cluster(
             for block in response.content
             if isinstance(block, ToolUseBlock) and block.name == SUBMIT_DIAGNOSIS
         ]
+        # Scrubbed ids echoed back; originals drive local execution and
+        # validation. _scrub_response preserves order, so zip pairs them.
+        _scrubbed_ids = {
+            orig.id: clean.id
+            for orig, clean in zip(response.content, scrubbed.content)
+            if isinstance(orig, ToolUseBlock) and isinstance(clean, ToolUseBlock)
+        }
+
+        def _echo_id(original_id: str) -> str:
+            """Return the scrubbed id for a model-issued tool_use id."""
+            return _scrubbed_ids.get(original_id, scrubber.redact(original_id))
 
         results: list[TextBlock | ToolUseBlock | ToolResultBlock] = []
-        for block in reads:
+        for block in orig_reads:
             if tool_calls >= config.max_agent_steps:
                 results.append(
                     ToolResultBlock(
-                        tool_use_id=block.id,
+                        tool_use_id=_echo_id(block.id),
                         content=_wrap_untrusted(
                             "tool budget exhausted; finish with submit_diagnosis"
                         ),
@@ -254,7 +290,7 @@ def triage_cluster(
             except Exception as exc:
                 results.append(
                     ToolResultBlock(
-                        tool_use_id=block.id,
+                        tool_use_id=_echo_id(block.id),
                         content=_wrap_untrusted(scrubber.redact(f"tool error: {exc}")),
                         is_error=True,
                     )
@@ -263,7 +299,7 @@ def triage_cluster(
                 content = raw if raw else _EMPTY_RESULT
                 results.append(
                     ToolResultBlock(
-                        tool_use_id=block.id,
+                        tool_use_id=_echo_id(block.id),
                         content=_wrap_untrusted(scrubber.redact(content)),
                         is_error=False,
                     )
@@ -274,7 +310,7 @@ def triage_cluster(
             for extra in submits[1:]:
                 results.append(
                     ToolResultBlock(
-                        tool_use_id=extra.id,
+                        tool_use_id=_echo_id(extra.id),
                         content=_wrap_untrusted(
                             "only the first submit_diagnosis per turn is processed"
                         ),
@@ -302,7 +338,7 @@ def triage_cluster(
                 return _unverified_diagnosis(cluster, parsed, failed_items)
             results.append(
                 ToolResultBlock(
-                    tool_use_id=submits[0].id,
+                    tool_use_id=_echo_id(submits[0].id),
                     content=_wrap_untrusted(scrubber.redact(feedback)),
                     is_error=True,
                 )
@@ -312,7 +348,7 @@ def triage_cluster(
 
         if forced:
             return _failed_diagnosis(cluster, "model did not submit after forced tool_choice")
-        if not reads:
+        if not orig_reads:
             nudge = (
                 "You called no tool and did not submit. Continue investigating "
                 "with the read-only tools, then finish with submit_diagnosis."

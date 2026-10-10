@@ -2,6 +2,7 @@
 
 from regtriage.agent.clients import AnthropicClient, ReplayClient
 from regtriage.agent.diagnosis import Diagnosis, SuspectedFile
+from regtriage.agent.gemini import DEFAULT_GEMINI_MODEL_ID, GeminiClient, flatten_diagnosis_schema
 from regtriage.agent.loop import SYSTEM_PROMPT, triage_cluster
 from regtriage.agent.protocol import (
     ConversationMessage,
@@ -17,7 +18,9 @@ from regtriage.agent.tooling import ToolRuntime, agent_tool_schemas
 __all__ = [
     "AnthropicClient",
     "ConversationMessage",
+    "DEFAULT_GEMINI_MODEL_ID",
     "Diagnosis",
+    "GeminiClient",
     "LlmClient",
     "LlmRequest",
     "LlmResponse",
@@ -29,5 +32,6 @@ __all__ = [
     "ToolRuntime",
     "ToolUseBlock",
     "agent_tool_schemas",
+    "flatten_diagnosis_schema",
     "triage_cluster",
 ]
