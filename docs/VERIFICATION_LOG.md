@@ -617,3 +617,137 @@ PYTEST_EXIT:0
 
 Slice 3 verdict: green, 74 passed + 1 skipped, coverage 95.95%,
 `signature.py` 100%.
+
+---
+
+## Slice 4: sandboxed tools + adversarial tests (2026-10-10)
+
+New files: `src/regtriage/tools/sandbox.py` (realpath confinement),
+`src/regtriage/tools/files.py` (read_log_lines, grep_source with static
+ReDoS rejection, binary/oversize skips, no dir-symlink following),
+`src/regtriage/tools/git.py` (git_blame porcelain parser, git_log NUL
+format, argv-only subprocess with timeout),
+`src/regtriage/tools/__init__.py`, `tests/test_tools.py` (32 tests, all on
+real files and real temp git repos).
+
+Mid-slice fixes:
+- `resolve-then-compare` in one check; `a/../b` staying inside is allowed.
+- Porcelain omits repeated commit/author blocks for consecutive lines from
+  the same commit — the blame parser no longer resets sha/author per line
+  (found because the author assertion failed on line 2 of a 4-line blame).
+- This box has ~387 MB free, so a literal 1 GB fixture is impossible; the
+  huge-file test uses a 1 MB sparse file with `max_file_bytes=1024` — same
+  guard branch, same speed assertion. A 1 GB run remains for Linux CI.
+
+### `python -m ruff check src tests`
+```
+All checks passed!
+RUFF:0
+```
+
+### `python -m ruff format --check src tests`
+```
+25 files already formatted
+FMT:0
+```
+
+### `python -m mypy --strict src tests`
+```
+Success: no issues found in 25 source files
+MYPY:0
+```
+
+### `python -m bandit -c pyproject.toml -r src`
+(Bandit output below is verbatim except the trailing `[main] INFO` lines and
+the benign `[manager] WARNING: Test in comment` echoes, unchanged from
+Slice 2, which are omitted for length.)
+```
+Run started:2026-10-10 11:45:19.517360+00:00
+
+Test results:
+	No issues identified.
+
+Code scanned:
+	Total lines of code: 1162
+	Total lines skipped (#nosec): 0
+	Total potential issues skipped due to specifically being disabled (e.g., #nosec BXXX): 7
+
+Run metrics:
+	Total issues (by severity):
+		Undefined: 0
+		Low: 0
+		Medium: 0
+		High: 0
+	Total issues (by confidence):
+		Undefined: 0
+		Low: 0
+		Medium: 0
+		High: 0
+Files skipped (0):
+BANDIT:0
+```
+
+### `python -m pytest --cov=regtriage --cov-branch --cov-report=term-missing`
+(107 items collected; earlier suites pass unchanged — only the 32 new
+tool-test lines are reproduced here verbatim, plus the full coverage table.)
+```
+tests/test_tools.py::test_resolve_allows_inside_and_inner_dotdot PASSED  [ 71%]
+tests/test_tools.py::test_resolve_rejects_escapes PASSED                 [ 71%]
+tests/test_tools.py::test_resolve_rejects_missing_root PASSED            [ 72%]
+tests/test_tools.py::test_read_log_lines_window PASSED                   [ 73%]
+tests/test_tools.py::test_read_log_lines_beyond_eof_is_empty PASSED      [ 74%]
+tests/test_tools.py::test_read_log_lines_rejects_over_cap PASSED         [ 75%]
+tests/test_tools.py::test_read_log_lines_truncates_bytes PASSED          [ 76%]
+tests/test_tools.py::test_read_log_lines_missing_file PASSED             [ 77%]
+tests/test_tools.py::test_read_log_lines_invalid_range PASSED            [ 78%]
+tests/test_tools.py::test_read_log_lines_rejects_huge_file_fast PASSED   [ 79%]
+tests/test_tools.py::test_read_log_lines_replaces_invalid_utf8 PASSED    [ 80%]
+tests/test_tools.py::test_prompt_injection_text_is_returned_as_data PASSED [ 81%]
+tests/test_tools.py::test_grep_finds_matches PASSED                      [ 82%]
+tests/test_tools.py::test_grep_path_prefix_confinement PASSED            [ 83%]
+tests/test_tools.py::test_grep_invalid_regex_is_clean_error PASSED       [ 84%]
+tests/test_tools.py::test_grep_rejects_redos_pattern_fast PASSED         [ 85%]
+tests/test_tools.py::test_grep_rejects_quantified_alternation PASSED     [ 85%]
+tests/test_tools.py::test_grep_rejects_overlong_pattern PASSED           [ 86%]
+tests/test_tools.py::test_grep_prefix_file_is_not_a_directory PASSED     [ 87%]
+tests/test_tools.py::test_grep_stops_at_cap_across_files PASSED          [ 88%]
+tests/test_tools.py::test_grep_skips_oversized_files PASSED              [ 89%]
+tests/test_tools.py::test_grep_skips_git_dir_and_binaries PASSED         [ 90%]
+tests/test_tools.py::test_grep_respects_max_results PASSED               [ 91%]
+tests/test_tools.py::test_symlink_escape_is_rejected SKIPPED (cannot create symlinks on this machine) [ 92%]
+tests/test_tools.py::test_git_log_lists_commits_newest_first PASSED      [ 93%]
+tests/test_tools.py::test_git_log_for_file_and_count_cap PASSED          [ 94%]
+tests/test_tools.py::test_git_blame_maps_lines_to_commits PASSED         [ 95%]
+tests/test_tools.py::test_git_blame_rejects_bad_range PASSED             [ 96%]
+tests/test_tools.py::test_git_blame_rejects_escape PASSED                [ 97%]
+tests/test_tools.py::test_git_tools_fail_cleanly_outside_repo PASSED     [ 98%]
+tests/test_tools.py::test_git_missing_binary_is_execution_error PASSED   [ 99%]
+tests/test_tools.py::test_git_timeout_is_execution_error PASSED          [100%]
+
+Name                                Stmts   Miss Branch BrPart  Cover   Missing
+-------------------------------------------------------------------------------
+src\regtriage\__init__.py               5      0      0      0   100%
+src\regtriage\config.py               139      1     52      4    97%   103, 155->157, 157->160, 255->254
+src\regtriage\errors.py                91      0     30      0   100%
+src\regtriage\logging.py               54      0     16      1    99%   91->94
+src\regtriage\parsing\__init__.py       3      0      0      0   100%
+src\regtriage\parsing\base.py          12      0      0      0   100%
+src\regtriage\parsing\cocotb.py        44      3     16      1    93%   42-43, 78
+src\regtriage\runner\__init__.py        3      0      0      0   100%
+src\regtriage\runner\executor.py       18      0      0      0   100%
+src\regtriage\runner\local.py          61     10     18      4    80%   30-36, 46, 72, 82
+src\regtriage\tools\__init__.py         4      0      0      0   100%
+src\regtriage\tools\files.py           96      4     44      2    96%   158, 160, 166-167
+src\regtriage\tools\git.py             68      1     22      1    98%   135
+src\regtriage\tools\sandbox.py         17      0      4      0   100%
+-------------------------------------------------------------------------------
+TOTAL                                 677     19    220     13    96%
+Required test coverage of 90.0% reached. Total coverage: 96.21%
+======================= 105 passed, 2 skipped in 9.62s ========================
+PYTEST_EXIT:0
+```
+Remaining misses are Windows-uncoverable (158/160 symlink-skip branches,
+166-167 read-race guard) or defensive (git.py 135 malformed-record guard);
+the symlink test runs on Linux CI.
+
+Slice 4 verdict: green, 105 passed + 2 skipped, coverage 96.21%.
