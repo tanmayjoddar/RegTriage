@@ -1,5 +1,6 @@
 """Read-only git tools: blame and log over the allowed checkout."""
 
+import os
 import subprocess  # nosec B404: git inspection is the tool's job; argv lists only, never shell.
 from pathlib import Path
 
@@ -35,6 +36,35 @@ class CommitInfo(BaseModel):
     subject: str = ""
 
 
+def _git_environ(root: Path) -> dict[str, str]:
+    """Scrubbed environment for git children.
+
+    No GIT_* variable passes through: GIT_DIR/GIT_WORK_TREE/GIT_INDEX_FILE
+    could redirect commands at a decoy repo (demonstrated: fatal "outside
+    repository"), and GIT_CONFIG_* could inject aliases, diff drivers, or
+    pager commands. The user global config is replaced by the null device
+    and discovery may not ascend above the root.
+
+    Two deliberate non-settings, both empirically grounded on Git-for-Windows:
+    GIT_CONFIG_NOSYSTEM is NOT set, because the system config carries the
+    line-ending conversion that blame needs to attribute correctly —
+    disabling it alongside the global config collapses multi-commit blame
+    to all-zero SHAs (reproduced; single-var and pair experiments recorded
+    in the verification log). Conversion itself is NOT pinned either: our
+    writes (prepare_case) and reads share this exact environment, so they
+    always agree with each other, and reads match ambient-committed repos on
+    both Windows (system autocrlf) and Linux (built-in default). Pinning
+    conversion would reintroduce the same mismatch class against
+    third-party checkouts. System config is image-level trusted surface,
+    unlike environment variables. Everything else (PATH, SystemRoot,
+    locale) is inherited unchanged.
+    """
+    env = {key: value for key, value in os.environ.items() if not key.startswith("GIT_")}
+    env["GIT_CONFIG_GLOBAL"] = os.devnull
+    env["GIT_CEILING_DIRECTORIES"] = str(root)
+    return env
+
+
 def run_git(root: Path, args: list[str], timeout_seconds: float) -> str:
     """Run one git argv list inside `root`; every call carries a timeout."""
     argv = ["git", "-C", str(root)] + args
@@ -45,6 +75,7 @@ def run_git(root: Path, args: list[str], timeout_seconds: float) -> str:
             text=True,
             timeout=timeout_seconds,
             check=False,
+            env=_git_environ(root),
         )
     except FileNotFoundError as exc:
         raise ExecutionError("git executable not found on PATH", command=argv) from exc

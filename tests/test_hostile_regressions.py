@@ -427,3 +427,118 @@ def test_fix_7_dispatcher_passes_opt_in(tmp_path: Path) -> None:
     assert runtime.dispatch("grep_source", {"pattern": "abc"}) != ""
     out = runtime.dispatch("grep_source", {"pattern": "(abc|zzz)", "fixed_strings": False})
     assert "a.txt:1:" in out
+
+
+def _git_repo_with(root: Path, files: dict[str, str]) -> Path:
+    import shutil
+    import subprocess
+
+    if shutil.which("git") is None:
+        pytest.skip("git not installed")
+    repo = root / "repo"
+    repo.mkdir(parents=True, exist_ok=True)
+    subprocess.run(["git", "init", "-q"], cwd=repo, capture_output=True, timeout=60, check=True)
+    subprocess.run(
+        ["git", "config", "user.name", "T"], cwd=repo, capture_output=True, timeout=60, check=True
+    )
+    subprocess.run(
+        ["git", "config", "user.email", "t@e"],
+        cwd=repo,
+        capture_output=True,
+        timeout=60,
+        check=True,
+    )
+    for rel, text in files.items():
+        target = repo / rel
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(text, encoding="utf-8")
+    subprocess.run(["git", "add", "-A"], cwd=repo, capture_output=True, timeout=60, check=True)
+    subprocess.run(
+        ["git", "commit", "-qm", "one"], cwd=repo, capture_output=True, timeout=60, check=True
+    )
+    return repo
+
+
+def test_probe_5_git_dir_decoy_ignored(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from regtriage.tools import git_blame, git_log
+
+    real = _git_repo_with(tmp_path / "real", {"a.v": "module a;\n  wire w;\nendmodule\n"})
+    decoy = _git_repo_with(tmp_path / "decoy", {"a.v": "module DECOY;\nendmodule\n"})
+    monkeypatch.setenv("GIT_DIR", str(decoy / ".git"))
+    monkeypatch.setenv("GIT_WORK_TREE", str(decoy))
+    lines = git_blame(real, "a.v", 2, 2)
+    assert len(lines) == 1 and lines[0].text.strip() == "wire w;"
+    commits = git_log(real, max_count=5)
+    assert [c.subject for c in commits] == ["one"]
+    assert all(len(c.sha) == 40 for c in commits)
+
+
+def test_probe_5_malicious_gitconfig_alias_neutered(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from regtriage.tools import git_blame
+
+    real = _git_repo_with(tmp_path / "real", {"a.v": "module a;\n  wire w;\nendmodule\n"})
+    evil_config = tmp_path / "evil.gitconfig"
+    evil_config.write_text("[alias]\n\tblame = !touch PWNED_FROM_ALIAS\n", encoding="utf-8")
+    monkeypatch.setenv("GIT_CONFIG_GLOBAL", str(evil_config))
+    monkeypatch.setenv("GIT_CONFIG_SYSTEM", str(evil_config))
+    lines = git_blame(real, "a.v", 2, 2)
+    assert lines[0].text.strip() == "wire w;"
+    assert not (tmp_path / "PWNED_FROM_ALIAS").exists()
+    assert not (real / "PWNED_FROM_ALIAS").exists()
+
+
+def test_fix_5_config_count_injection_neutered(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from regtriage.tools import git_blame
+
+    real = _git_repo_with(tmp_path / "real", {"a.v": "module a;\n  wire w;\nendmodule\n"})
+    monkeypatch.setenv("GIT_CONFIG_COUNT", "1")
+    monkeypatch.setenv("GIT_CONFIG_KEY_0", "alias.blame")
+    monkeypatch.setenv("GIT_CONFIG_VALUE_0", "!touch PWNED_FROM_COUNT")
+    lines = git_blame(real, "a.v", 2, 2)
+    assert lines[0].text.strip() == "wire w;"
+    assert not (tmp_path / "PWNED_FROM_COUNT").exists()
+    assert not (real / "PWNED_FROM_COUNT").exists()
+
+
+def test_fix_5_work_tree_alone_neutered(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from regtriage.tools import git_log
+
+    real = _git_repo_with(tmp_path / "real", {"a.v": "module a;\nendmodule\n"})
+    decoy = _git_repo_with(tmp_path / "decoy", {"b.v": "module DECOY;\nendmodule\n"})
+    monkeypatch.setenv("GIT_WORK_TREE", str(decoy))
+    assert [c.subject for c in git_log(real, max_count=5)] == ["one"]
+
+
+_ISOLATION_VARS = frozenset({"GIT_CONFIG_GLOBAL", "GIT_CEILING_DIRECTORIES"})
+
+
+def test_fix_5_environ_contents(tmp_path: Path) -> None:
+    import os as _os
+
+    from regtriage.tools.git import _git_environ
+
+    env = _git_environ(tmp_path)
+    assert not any(k.startswith("GIT_") for k in env if k not in _ISOLATION_VARS)
+    assert env["GIT_CONFIG_GLOBAL"] == _os.devnull
+    assert env["GIT_CEILING_DIRECTORIES"] == str(tmp_path)
+    assert env["PATH"] == _os.environ["PATH"]
+
+
+def test_fix_5_prepare_case_under_hostile_env(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from regtriage.eval.harness import prepare_case
+    from regtriage.tools import git_blame
+
+    src = tmp_path / "src"
+    src.mkdir()
+    (src / "a.v").write_text("module a;\n  wire w;\nendmodule\n", encoding="utf-8")
+    decoy = _git_repo_with(tmp_path / "decoy", {"z.v": "module DECOY;\nendmodule\n"})
+    monkeypatch.setenv("GIT_DIR", str(decoy / ".git"))
+    monkeypatch.setenv("GIT_WORK_TREE", str(decoy))
+    case = prepare_case(src, tmp_path / "work", "case-0000", None)
+    assert git_blame(case, "a.v", 2, 2)[0].text.strip() == "wire w;"
