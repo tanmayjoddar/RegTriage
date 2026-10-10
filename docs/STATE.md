@@ -1,8 +1,12 @@
 # RegTriage Run State (updated after every slice)
 
 - Last completed slice: 5 (evidence validator + tests)
+- Remote: https://github.com/tanmayjoddar/RegTriage.git (branch master,
+  pushed 2026-10-10). History rewritten once before first push so all
+  commits carry tanmayjoddar <tanmayjoddar17@gmail.com>; hashes below are
+  post-rewrite.
 - What is done:
-  - Slices 0, 2, 3, 4 committed (9b65c02, 3a18ad1, 47a61f7, ac02d5c).
+  - Slices 0, 2, 3, 4 committed (e51b79e, 1de80f0, a5d2701, 22e06e8).
   - Slice 5: `src/regtriage/validation/` (Evidence model, normalize_quote,
     validate_evidence with exact-reason errors, commit sha/touched/diff
     checks) and `tests/test_validation.py` (19 tests, real files + real
