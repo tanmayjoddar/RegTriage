@@ -1,34 +1,29 @@
 # RegTriage Run State (updated after every slice)
 
-- Last completed slice: 2 (LocalExecutor + cocotb results parsing + real
-  integration test)
+- Last completed slice: 3 (signature normalization + clustering + property
+  tests)
 - What is done:
-  - Slice 0 committed (9b65c02): model default `claude-sonnet-5-5`, nosec
-    B105 justification, pinned CI SHAs, conftest uses DEFAULT_MODEL_ID.
-  - Slice 2: `src/regtriage/runner/` (Executor Protocol, JobSpec/JobResult,
-    LocalExecutor with bounded parallelism, per-job timeout, process-group
-    kill, 200k output cap) and `src/regtriage/parsing/` (Parser Protocol,
-    Failure, CocotbResultsParser with UTF-8/malformed/size/DOCTYPE guards).
-  - Tests: 12 LocalExecutor unit tests (real subprocesses), 12 parser unit
-    tests, 1 slow integration test (real cocotb+Icarus, skips with printed
-    reason here), 3 XML fixtures. 59 passed + 1 skipped, coverage 95.37%.
-  - `slow` marker registered in pyproject.toml. Bandit clean with 5 justified
-    nosecs (B105/B314/B405/B404/B603). All 5 checks green; real output in
-    docs/VERIFICATION_LOG.md; +5 Q&A in docs/INTERVIEW.md.
-- Exact next step: Slice 3 — signature normalization + clustering
-  (`src/regtriage/signature.py`: normalize hex/numbers/timestamps/paths/
-  instance indices, hash, cluster identical, Jaccard merge above threshold)
-  with hypothesis property tests (idempotent, order-independent), 5 INTERVIEW
-  Q&A, verification log entry, commit "slice 3: ...".
+  - Slices 0, 2 committed (9b65c02, 3a18ad1).
+  - Slice 3: `src/regtriage/signature.py` (ordered regex normalization,
+    sha256 signatures, Jaccard, exact clustering + greedy merge, frozen
+    Cluster model) and `tests/test_signature.py` (12 unit + 3 hypothesis
+    property tests). signature.py 100% branch-covered; total 95.95%,
+    74 passed + 1 skipped. All 5 checks green; log + INTERVIEW updated.
+- Exact next step: Slice 4 — sandboxed read-only tools (`src/regtriage/tools/`
+  with read_log_lines, grep_source, git_blame, git_log; allowed-root
+  realpath confinement, caps, regex timeout) plus ALL adversarial tests
+  (prompt-injection log, symlink escape, ../ traversal, ReDoS pattern, 1 GB
+  log, malformed XML, invalid UTF-8, malformed model JSON, oversized tool
+  output), 5 INTERVIEW Q&A, verification log entry, commit "slice 4: ...".
 - Open issues:
-  - `.venv/` in the repo is Linux-only; verification on this Windows box used
-    system Python 3.11.9. Clean Linux install from requirements.lock with
-    --require-hashes NOT YET RUN BY A HUMAN.
-  - Integration test has never executed (no iverilog/cocotb here); real sim
-    run on Linux NOT YET RUN BY A HUMAN.
-  - `runner/local.py` lines 30-36 (killpg), 46/72/82 (defensive fallbacks)
-    uncovered on Windows; killpg branch needs Linux CI to cover.
-  - Template leftovers kept untouched and untracked: index.html,
+  - `.venv/` Linux-only; Windows box uses system Python 3.11.9. Clean Linux
+    install from requirements.lock --require-hashes NOT YET RUN BY A HUMAN.
+  - cocotb+Icarus integration test never executed here; real sim run on
+    Linux NOT YET RUN BY A HUMAN.
+  - `runner/local.py` killpg/defensive lines need Linux CI for coverage.
+  - Threshold default 0.75 unevaluated on real logs; revisit with Slice 8
+    harness measurements.
+  - Template leftovers kept untouched and untracked (index.html,
     package.json, tsconfig.json, vite.config.ts, metadata.json, .env.example,
-    requirements.txt, src/App.tsx, src/main.tsx, src/index.css. Planned
+    requirements.txt, src/App.tsx, src/main.tsx, src/index.css). Planned
     removal in Slice 11 (explicit, not silent).

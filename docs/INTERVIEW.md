@@ -158,3 +158,42 @@ Protocols give structural typing: `LocalExecutor` satisfies `Executor` without i
 
 **Limitation:**
 Structural matching is silent: a class with a subtly wrong signature (e.g., `run_jobs` returning a generator) fails only where it is used, not at class definition. The defense is the unit tests, which pass every executor through the same behavioral assertions, plus mypy's protocol checks at assignment points.
+
+---
+
+## Slice 3: signature normalization + clustering + property tests
+
+### 1. Why normalize with a fixed ordered list of regexes instead of one big pattern or an ML embedding?
+**Answer:**
+Ordering removes ambiguity deterministically: Verilog literals (`8'hFF`) are replaced before bare numbers (else `8` would match `\b\d+\b` first), hex before numbers, timestamps before numbers (else `12:34:56` shreds into three `<n>`), paths before numbers. Each pattern is a flat character class with no nesting, so matching is linear — important because failure text is untrusted input and nested quantifiers would be a ReDoS vector. An embedding would be nondeterministic across versions and unexplainable in an interview; regex placeholders let me show exactly why two failures share a signature.
+
+**Limitation:**
+The placeholder set is closed: a new detail kind (e.g., UUID test IDs, IPv6 addresses) passes through raw and splits clusters until someone adds a pattern. Lowercasing also merges messages that differ only in case, which could theoretically join distinct failures — accepted because HDL log messages rarely carry case-sensitive meaning.
+
+### 2. Why is `normalize_message` idempotent, and why does that matter?
+**Answer:**
+Idempotence (`normalize(normalize(x)) == normalize(x)`) holds because no placeholder contains text any pattern matches: `<hex>` has no `0x`, `<n>`/`[n]` have no digits, `<path>`/`<time>`/`<vlit>` contain no slashes, digits, or quotes the patterns need. It matters because clustering, caching, and the eval harness all re-normalize freely — if normalization were not a fixed point, the signature of a signature would drift and identical failures could hash differently depending on how many times they were processed. A hypothesis property test asserts this over arbitrary unicode input.
+
+**Limitation:**
+Idempotence is tested, not proven: hypothesis samples a few hundred inputs per run, so a pathological interaction (e.g., a placeholder emerging from some exotic unicode folding) could still hide. The patterns only use ASCII classes on lowercased text, which keeps the risk small but nonzero.
+
+### 3. Why sort exact groups by signature before greedy Jaccard merging?
+**Answer:**
+Greedy merging is order-sensitive in general: whichever cluster is visited first absorbs a near-duplicate, and token-set unions then shift later comparisons. Sorting exact groups by signature hex makes the visit order a pure function of content, so shuffling the input failures cannot change the output — a second hypothesis property asserts `canon(msgs) == canon(reversed(msgs)) == canon(sorted(msgs))`. Deterministic cluster IDs (`cluster-001...`) then let the agent, validator, and reports reference clusters stably across reruns.
+
+**Limitation:**
+Greedy single-pass merging is not globally optimal: a group could merge into cluster A (first fit above threshold) when merging into cluster B would have produced a tighter overall partition. With a high threshold (default 0.75) first-fit mistakes are rare, but a pathological chain of 0.76-similar groups can still transitively glue unrelated failures into one cluster.
+
+### 4. Why did coverage flag the merge path, and what did that reveal?
+**Answer:**
+Branch coverage showed lines 88-91 (merge into an existing cluster) never executed: my first near-duplicate test used messages that normalized *identically*, so they formed one exact group and the Jaccard path — the slice's headline feature — was dead code in tests. I added a channel-vs-port pair whose normalized forms differ but score exactly 0.75, asserting merge at 0.75 and split at 0.9. This is why the spec demands branch coverage, not just line coverage: the lines were "covered" by other paths while the actual behavior went untested.
+
+**Limitation:**
+The 0.75-boundary test pins current behavior, not correctness: whether 0.75 is the *right* default for real PCIe logs is unevaluated until the Slice 8 harness measures cluster purity on real regressions. The threshold stays configurable (`similarity_threshold`) precisely because I do not yet know.
+
+### 5. Why does `cluster_failures` take plain `list[Failure]` and return fresh `Cluster` models instead of mutating in place?
+**Answer:**
+Pure functions are trivially property-testable (no setup/teardown, no aliasing surprises) and safe to call from the agent loop, reporters, and eval scorer concurrently. `Cluster` is a frozen pydantic model, so downstream code cannot accidentally reassign members and corrupt another consumer's view — the same immutability rationale as `RegTriageConfig` in Slice 1.
+
+**Limitation:**
+Fresh models per call cost allocation proportional to the failure count on every invocation. Regression failure lists are small (tens, not millions), so this is negligible — but if someone pointed clustering at raw per-cycle log lines, the quadratic-ish greedy merge plus copying would hurt, and the function would need batching, not just purity.

@@ -509,3 +509,111 @@ branch is covered on Linux CI.
 
 Slice 2 verdict: green, 59 passed + 1 skipped (integration, no simulator
 here), coverage 95.37%.
+
+---
+
+## Slice 3: signature normalization + clustering + property tests (2026-10-10)
+
+New files: `src/regtriage/signature.py` (normalize hex/numbers/timestamps/
+paths/instance indices/Verilog literals, sha256 signature, token-set Jaccard,
+exact clustering + greedy near-duplicate merge above threshold) and
+`tests/test_signature.py` (12 unit tests + 3 hypothesis property tests:
+normalize idempotent, clustering order-independent, clustering idempotent).
+
+Mid-slice fix: coverage showed the Jaccard-merge path for *distinct*
+signatures (lines 88-91) was unexercised — the first near-dup test normalized
+both messages identically. Added
+`test_near_duplicates_with_different_signatures_merge` (channel-vs-port,
+Jaccard exactly 0.75: merges at 0.75, splits at 0.9). `signature.py` is now
+100%.
+
+### `python -m ruff check src tests`
+```
+All checks passed!
+RUFF:0
+```
+
+### `python -m ruff format --check src tests`
+```
+20 files already formatted
+FMT:0
+```
+
+### `python -m mypy --strict src tests`
+```
+Success: no issues found in 20 source files
+MYPY:0
+```
+
+### `python -m bandit -c pyproject.toml -r src`
+(Bandit output below is verbatim except the trailing `[main] INFO` lines and
+the benign `[manager] WARNING: Test in comment` echoes, unchanged from
+Slice 2, which are omitted for length.)
+```
+Run started:2026-10-10 11:37:16.695051+00:00
+
+Test results:
+	No issues identified.
+
+Code scanned:
+	Total lines of code: 840
+	Total lines skipped (#nosec): 0
+	Total potential issues skipped due to specifically being disabled (e.g., #nosec BXXX): 5
+
+Run metrics:
+	Total issues (by severity):
+		Undefined: 0
+		Low: 0
+		Medium: 0
+		High: 0
+	Total issues (by confidence):
+		Undefined: 0
+		Low: 0
+		Medium: 0
+		High: 0
+Files skipped (0):
+BANDIT:0
+```
+
+### `python -m pytest --cov=regtriage --cov-branch --cov-report=term-missing`
+(75 items collected; all earlier tests still pass unchanged — only the 15 new
+signature lines are reproduced here verbatim, plus the full coverage table.)
+```
+tests/test_signature.py::test_hex_addresses_normalize PASSED             [ 81%]
+tests/test_signature.py::test_numbers_timestamps_and_indices_normalize PASSED [ 82%]
+tests/test_signature.py::test_paths_and_verilog_literals_normalize PASSED [ 84%]
+tests/test_signature.py::test_normalize_collapses_whitespace_and_case PASSED [ 85%]
+tests/test_signature.py::test_signature_is_stable_sha256 PASSED          [ 86%]
+tests/test_signature.py::test_jaccard_edge_cases PASSED                  [ 88%]
+tests/test_signature.py::test_identical_signatures_form_one_cluster PASSED [ 89%]
+tests/test_signature.py::test_distinct_failures_stay_apart PASSED        [ 90%]
+tests/test_signature.py::test_near_duplicates_merge_above_threshold PASSED [ 92%]
+tests/test_signature.py::test_near_duplicates_with_different_signatures_merge PASSED [ 93%]
+tests/test_signature.py::test_empty_input_and_bad_threshold PASSED       [ 94%]
+tests/test_signature.py::test_cluster_model_rejects_empty_members PASSED [ 96%]
+tests/test_signature.py::test_normalize_is_idempotent PASSED             [ 97%]
+tests/test_signature.py::test_clustering_is_order_independent PASSED     [ 98%]
+tests/test_signature.py::test_clustering_is_idempotent PASSED            [100%]
+
+Name                                Stmts   Miss Branch BrPart  Cover   Missing
+-------------------------------------------------------------------------------
+src\regtriage\__init__.py               5      0      0      0   100%
+src\regtriage\config.py               139      1     52      4    97%   103, 155->157, 157->160, 255->254
+src\regtriage\errors.py                91      0     30      0   100%
+src\regtriage\logging.py               54      0     16      1    99%   91->94
+src\regtriage\parsing\__init__.py       3      0      0      0   100%
+src\regtriage\parsing\base.py          12      0      0      0   100%
+src\regtriage\parsing\cocotb.py        44      3     16      1    93%   42-43, 78
+src\regtriage\runner\__init__.py        3      0      0      0   100%
+src\regtriage\runner\executor.py       18      0      0      0   100%
+src\regtriage\runner\local.py          61     10     18      4    80%   30-36, 46, 72, 82
+src\regtriage\signature.py             62      0     18      0   100%
+-------------------------------------------------------------------------------
+TOTAL                                 492     14    150     10    96%
+Required test coverage of 90.0% reached. Total coverage: 95.95%
+======================== 74 passed, 1 skipped in 5.46s ========================
+PYTEST_EXIT:0
+```
+
+Slice 3 verdict: green, 74 passed + 1 skipped, coverage 95.95%,
+`signature.py` 100%.
