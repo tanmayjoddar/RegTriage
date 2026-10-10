@@ -164,7 +164,9 @@ def _check_pattern(pattern: str, regex_timeout_seconds: float) -> None:
         )
 
 
-def _iter_candidates(start: Path, resolved_root: Path) -> Generator[tuple[str, list[str]], None, None]:
+def _iter_candidates(
+    start: Path, resolved_root: Path
+) -> Generator[tuple[str, list[str]], None, None]:
     """Yield (relpath, lines) per readable file under `start`.
 
     Same skips as before: pruned dirs, outside symlinks, denied names,
@@ -341,4 +343,6 @@ def grep_source(
                     hits.append(GrepHit(path=rel, line=lineno, text=text[:_MAX_HIT_TEXT_CHARS]))
         return hits
     candidates = _collect_candidates(start, resolved_root)
-    return _run_regex_worker(pattern, candidates, timeout_seconds, hit_cap=max_results)[:max_results]
+    return _run_regex_worker(pattern, candidates, timeout_seconds, hit_cap=max_results)[
+        :max_results
+    ]

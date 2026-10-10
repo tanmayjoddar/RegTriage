@@ -118,7 +118,9 @@ def _validate_commit_citation(
     except UnicodeDecodeError as exc:
         raise _fail(evidence, f"committed file is not valid UTF-8: {rel}") from exc
     if "\x00" in blob:
-        raise _fail(evidence, f"committed file contains NUL bytes (binary), not citable text: {rel}")
+        raise _fail(
+            evidence, f"committed file contains NUL bytes (binary), not citable text: {rel}"
+        )
     lines = blob.splitlines()
     if evidence.line_end > len(lines):
         raise _fail(

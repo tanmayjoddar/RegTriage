@@ -83,7 +83,9 @@ def _gemini_response(
 ) -> Any:
     content = SimpleNamespace(parts=parts, role="model")
     candidate = SimpleNamespace(content=content, finish_reason=finish_reason)
-    usage = SimpleNamespace(prompt_token_count=prompt_tokens, candidates_token_count=candidate_tokens)
+    usage = SimpleNamespace(
+        prompt_token_count=prompt_tokens, candidates_token_count=candidate_tokens
+    )
     return SimpleNamespace(candidates=[candidate], usage_metadata=usage)
 
 
@@ -97,9 +99,7 @@ def _call_part(name: str, args: dict[str, Any], call_id: str = "call-1") -> Any:
     )
 
 
-def _client(
-    fake: _FakeGeminiSdk, **over: Any
-) -> GeminiClient:
+def _client(fake: _FakeGeminiSdk, **over: Any) -> GeminiClient:
     params: dict[str, Any] = {"client_factory": fake}
     params.update(over)
     return GeminiClient(SecretStr("gemini-test-key"), **params)
@@ -132,11 +132,25 @@ def test_request_translation_text_and_tool_result_names() -> None:
             },
             {
                 "role": "assistant",
-                "content": [{"type": "tool_use", "id": "u1", "name": "grep_source", "input": {"pattern": "x"}}],
+                "content": [
+                    {
+                        "type": "tool_use",
+                        "id": "u1",
+                        "name": "grep_source",
+                        "input": {"pattern": "x"},
+                    }
+                ],
             },
             {
                 "role": "user",
-                "content": [{"type": "tool_result", "tool_use_id": "u1", "content": "hit", "is_error": False}],
+                "content": [
+                    {
+                        "type": "tool_result",
+                        "tool_use_id": "u1",
+                        "content": "hit",
+                        "is_error": False,
+                    }
+                ],
             },
         ]
     )
@@ -284,7 +298,6 @@ def test_retry_hint_response_json_fallback() -> None:
     assert sleeps == [3.5]
 
 
-
 def test_non_retryable_fails_without_sleep() -> None:
     from google.genai import errors as _errors
 
@@ -340,9 +353,7 @@ def test_gemini_triage_redaction_and_audit_parity(tmp_path: Path) -> None:
     root.mkdir()
     (root / "sim.log").write_text(f"leak {secret} here\n", encoding="utf-8")
     fake = _FakeGeminiSdk()
-    fake.models.script.append(
-        _gemini_response([_call_part("read_log_lines", {"path": "sim.log"})])
-    )
+    fake.models.script.append(_gemini_response([_call_part("read_log_lines", {"path": "sim.log"})]))
     fake.models.script.append(
         _gemini_response(
             [
@@ -361,10 +372,16 @@ def test_gemini_triage_redaction_and_audit_parity(tmp_path: Path) -> None:
     backend = _client(fake)
     audit = AuditLogger(tmp_path / "audit.jsonl")
     cluster = Cluster(
-        cluster_id="cluster-001", signature="s", members=[Failure(test="t", message="m", raw_excerpt="")]
+        cluster_id="cluster-001",
+        signature="s",
+        members=[Failure(test="t", message="m", raw_excerpt="")],
     )
     diagnosis = triage_cluster(
-        client=backend, config=RegTriageConfig(workspace_root=root, model_id="m"), root=root, cluster=cluster, audit=audit
+        client=backend,
+        config=RegTriageConfig(workspace_root=root, model_id="m"),
+        root=root,
+        cluster=cluster,
+        audit=audit,
     )
     assert diagnosis.status == "failed"
     assert secret not in json.dumps(fake.models.calls, default=str)
@@ -431,7 +448,7 @@ def test_live_gemini_two_turn_tool_call() -> None:
             ),
             ConversationMessage(
                 role="assistant",
-                content=turn1_resp.content,
+                content=list[TextBlock | ToolUseBlock | ToolResultBlock](turn1_resp.content),
             ),
             ConversationMessage(
                 role="user",
@@ -452,7 +469,14 @@ def test_live_gemini_two_turn_tool_call() -> None:
 
 def test_replay_client_still_works() -> None:
     script = ReplayClient(
-        [LlmResponse(content=[TextBlock(text="hi")], stop_reason="end_turn", input_tokens=1, output_tokens=2)]
+        [
+            LlmResponse(
+                content=[TextBlock(text="hi")],
+                stop_reason="end_turn",
+                input_tokens=1,
+                output_tokens=2,
+            )
+        ]
     )
     out = script.create_message(_request())
     assert out.input_tokens == 1 and len(script.requests) == 1
@@ -464,22 +488,42 @@ def test_tool_call_ids_unique_across_turns_when_missing() -> None:
     fake = _FakeGeminiSdk()
     # Turn 1 response: tool_a call with id=None
     fake.models.script.append(
-        _gemini_response([SimpleNamespace(text=None, function_call=SimpleNamespace(name="tool_a", args={"x": 1}, id=None))])
+        _gemini_response(
+            [
+                SimpleNamespace(
+                    text=None, function_call=SimpleNamespace(name="tool_a", args={"x": 1}, id=None)
+                )
+            ]
+        )
     )
     # Turn 2 response: tool_b call with id=None
     fake.models.script.append(
-        _gemini_response([SimpleNamespace(text=None, function_call=SimpleNamespace(name="tool_b", args={"y": 2}, id=None))])
+        _gemini_response(
+            [
+                SimpleNamespace(
+                    text=None, function_call=SimpleNamespace(name="tool_b", args={"y": 2}, id=None)
+                )
+            ]
+        )
     )
     client = _client(fake)
-    resp1 = client.create_message(_request(messages=[ConversationMessage(role="user", content=[TextBlock(text="run a")])]))
+    resp1 = client.create_message(
+        _request(messages=[ConversationMessage(role="user", content=[TextBlock(text="run a")])])
+    )
     assert len(resp1.content) == 1 and isinstance(resp1.content[0], ToolUseBlock)
     call1 = resp1.content[0]
 
-    resp2 = client.create_message(_request(messages=[
-        ConversationMessage(role="user", content=[TextBlock(text="run a")]),
-        ConversationMessage(role="assistant", content=[call1]),
-        ConversationMessage(role="user", content=[ToolResultBlock(tool_use_id=call1.id, content="result_a")]),
-    ]))
+    resp2 = client.create_message(
+        _request(
+            messages=[
+                ConversationMessage(role="user", content=[TextBlock(text="run a")]),
+                ConversationMessage(role="assistant", content=[call1]),
+                ConversationMessage(
+                    role="user", content=[ToolResultBlock(tool_use_id=call1.id, content="result_a")]
+                ),
+            ]
+        )
+    )
     assert len(resp2.content) == 1 and isinstance(resp2.content[0], ToolUseBlock)
     call2 = resp2.content[0]
 
@@ -487,13 +531,19 @@ def test_tool_call_ids_unique_across_turns_when_missing() -> None:
     assert call1.id != call2.id
 
     # And translating the 2-turn conversation must preserve both function names
-    multi_turn_request = _request(messages=[
-        ConversationMessage(role="user", content=[TextBlock(text="run a")]),
-        ConversationMessage(role="assistant", content=[call1]),
-        ConversationMessage(role="user", content=[ToolResultBlock(tool_use_id=call1.id, content="result_a")]),
-        ConversationMessage(role="assistant", content=[call2]),
-        ConversationMessage(role="user", content=[ToolResultBlock(tool_use_id=call2.id, content="result_b")]),
-    ])
+    multi_turn_request = _request(
+        messages=[
+            ConversationMessage(role="user", content=[TextBlock(text="run a")]),
+            ConversationMessage(role="assistant", content=[call1]),
+            ConversationMessage(
+                role="user", content=[ToolResultBlock(tool_use_id=call1.id, content="result_a")]
+            ),
+            ConversationMessage(role="assistant", content=[call2]),
+            ConversationMessage(
+                role="user", content=[ToolResultBlock(tool_use_id=call2.id, content="result_b")]
+            ),
+        ]
+    )
     contents = _to_gemini_contents(multi_turn_request)
     # Check function names on function response parts
     tool_resp_names = [
@@ -513,13 +563,17 @@ def test_thought_signature_round_trip_preserved_and_unmangled_and_not_in_audit()
     fake = _FakeGeminiSdk()
     raw_sig = b"opaque-cryptographic-thought-signature-bytes"
     fake.models.script.append(
-        _gemini_response([
-            SimpleNamespace(
-                text=None,
-                function_call=SimpleNamespace(name="read_file", args={"path": "top.v"}, id="call-99"),
-                thought_signature=raw_sig,
-            )
-        ])
+        _gemini_response(
+            [
+                SimpleNamespace(
+                    text=None,
+                    function_call=SimpleNamespace(
+                        name="read_file", args={"path": "top.v"}, id="call-99"
+                    ),
+                    thought_signature=raw_sig,
+                )
+            ]
+        )
     )
     client = _client(fake)
     resp = client.create_message(_request())
@@ -544,7 +598,9 @@ def test_thought_signature_round_trip_preserved_and_unmangled_and_not_in_audit()
         messages=[
             ConversationMessage(role="user", content=[TextBlock(text="start")]),
             ConversationMessage(role="assistant", content=[call]),
-            ConversationMessage(role="user", content=[ToolResultBlock(tool_use_id=call.id, content="verilog")]),
+            ConversationMessage(
+                role="user", content=[ToolResultBlock(tool_use_id=call.id, content="verilog")]
+            ),
         ]
     )
     contents = _to_gemini_contents(turn_request)
@@ -552,5 +608,3 @@ def test_thought_signature_round_trip_preserved_and_unmangled_and_not_in_audit()
     assert model_turn.role == "model"
     part = model_turn.parts[0]
     assert getattr(part, "thought_signature", None) == raw_sig
-
-

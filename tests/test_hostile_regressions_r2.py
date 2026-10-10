@@ -15,8 +15,6 @@ from pathlib import Path
 import pytest
 
 from regtriage.agent import LlmResponse, ReplayClient, ToolUseBlock
-from regtriage.agent import LlmResponse as LR
-from regtriage.agent import ReplayClient as RC
 from regtriage.agent.protocol import TextBlock
 
 
@@ -53,10 +51,16 @@ def test_r1_secret_in_tool_name_reaches_llm_and_audit(tmp_path: Path) -> None:
     client = ReplayClient(script)
     audit = AuditLogger(tmp_path / "a.jsonl")
     cl = Cluster(
-        cluster_id="cluster-001", signature="s", members=[Failure(test="t", message="m", raw_excerpt="")]
+        cluster_id="cluster-001",
+        signature="s",
+        members=[Failure(test="t", message="m", raw_excerpt="")],
     )
     triage_cluster(
-        client=client, config=RegTriageConfig(workspace_root=root, model_id="m"), root=root, cluster=cl, audit=audit
+        client=client,
+        config=RegTriageConfig(workspace_root=root, model_id="m"),
+        root=root,
+        cluster=cl,
+        audit=audit,
     )
     assert evil not in json.dumps([r.model_dump() for r in client.requests])
     assert evil not in (tmp_path / "a.jsonl").read_text(encoding="utf-8")
@@ -116,12 +120,13 @@ def test_b1_global_budget_not_overshot(tmp_path: Path) -> None:
     }
 
     def factory() -> ReplayClient:
-        from regtriage.agent import LlmResponse as LR
 
         return ReplayClient(
             [
-                LR(
-                    content=[ToolUseBlock(id=f"a{i}", name="grep_source", input={"pattern": "len"})],
+                LlmResponse(
+                    content=[
+                        ToolUseBlock(id=f"a{i}", name="grep_source", input={"pattern": "len"})
+                    ],
                     stop_reason="tool_use",
                     input_tokens=10,
                     output_tokens=10,
@@ -129,7 +134,7 @@ def test_b1_global_budget_not_overshot(tmp_path: Path) -> None:
                 for i in range(3)
             ]
             + [
-                LR(
+                LlmResponse(
                     content=[ToolUseBlock(id="s1", name="submit_diagnosis", input=diag)],
                     stop_reason="tool_use",
                     input_tokens=10,
@@ -154,15 +159,18 @@ def test_b1_global_budget_not_overshot(tmp_path: Path) -> None:
 
 # --- G1. model sets its own regex kill clock ---
 def test_g1_regex_timeout_not_attacker_controlled(tmp_path: Path) -> None:
+    from pydantic import ValidationError
+
     from regtriage.agent import ToolRuntime
 
     root = tmp_path / "ws"
     root.mkdir()
     (root / "a.txt").write_text("hello\n", encoding="utf-8")
     runtime = ToolRuntime(root)
-    with pytest.raises(Exception):
+    with pytest.raises(ValidationError):
         runtime.dispatch(
-            "grep_source", {"pattern": "hello", "fixed_strings": False, "regex_timeout_seconds": 3600.0}
+            "grep_source",
+            {"pattern": "hello", "fixed_strings": False, "regex_timeout_seconds": 3600.0},
         )
 
 
@@ -220,11 +228,16 @@ def test_c1_nul_binary_not_citable(tmp_path: Path) -> None:
         timeout=60,
     )
     sha = subprocess.run(
-        ["git", "-C", str(repo), "rev-parse", "HEAD"], capture_output=True, text=True, timeout=60, check=True
+        ["git", "-C", str(repo), "rev-parse", "HEAD"],
+        capture_output=True,
+        text=True,
+        timeout=60,
+        check=True,
     ).stdout.strip()
     with pytest.raises(ValidationError):
         validate_evidence(
-            repo, Evidence(kind="commit", ref=f"{sha}:blob.bin", line_start=1, line_end=1, quote="hello")
+            repo,
+            Evidence(kind="commit", ref=f"{sha}:blob.bin", line_start=1, line_end=1, quote="hello"),
         )
 
 
@@ -235,34 +248,38 @@ def test_r1_variant_stop_reason_scrubbed(tmp_path: Path) -> None:
     from regtriage.config import RegTriageConfig
     from regtriage.parsing import Failure
     from regtriage.signature import Cluster
-    from regtriage.agent import ReplayClient as RC
-    from regtriage.agent import LlmResponse as LR
 
     evil = "AKIAIOSFODNN7EXAMPLE"
     root = tmp_path / "ws"
     root.mkdir()
     (root / "sim.log").write_text("hi\n", encoding="utf-8")
     script = [
-        LR(
+        LlmResponse(
             content=[TextBlock(text="thinking")],
             stop_reason=evil,
             input_tokens=1,
             output_tokens=1,
         ),
-        LR(
+        LlmResponse(
             content=[ToolUseBlock(id="s1", name="submit_diagnosis", input=_diag())],
             stop_reason="tool_use",
             input_tokens=1,
             output_tokens=1,
         ),
     ]
-    client = RC(script)
+    client = ReplayClient(script)
     audit = AuditLogger(tmp_path / "a.jsonl")
     cl = Cluster(
-        cluster_id="cluster-001", signature="s", members=[Failure(test="t", message="m", raw_excerpt="")]
+        cluster_id="cluster-001",
+        signature="s",
+        members=[Failure(test="t", message="m", raw_excerpt="")],
     )
     triage_cluster(
-        client=client, config=RegTriageConfig(workspace_root=root, model_id="m"), root=root, cluster=cl, audit=audit
+        client=client,
+        config=RegTriageConfig(workspace_root=root, model_id="m"),
+        root=root,
+        cluster=cl,
+        audit=audit,
     )
     assert evil not in json.dumps([r.model_dump() for r in client.requests])
     assert evil not in (tmp_path / "a.jsonl").read_text(encoding="utf-8")
@@ -273,33 +290,36 @@ def test_r1_variant_evil_id_echo_scrubbed_but_tool_runs(tmp_path: Path) -> None:
     from regtriage.config import RegTriageConfig
     from regtriage.parsing import Failure
     from regtriage.signature import Cluster
-    from regtriage.agent import ReplayClient as RC
-    from regtriage.agent import LlmResponse as LR
 
     evil_id = "u-AKIAIOSFODNN7EXAMPLE"
     root = tmp_path / "ws"
     root.mkdir()
     (root / "sim.log").write_text("needle here\n", encoding="utf-8")
     script = [
-        LR(
+        LlmResponse(
             content=[ToolUseBlock(id=evil_id, name="read_log_lines", input={"path": "sim.log"})],
             stop_reason="tool_use",
             input_tokens=1,
             output_tokens=1,
         ),
-        LR(
+        LlmResponse(
             content=[ToolUseBlock(id="s1", name="submit_diagnosis", input=_diag())],
             stop_reason="tool_use",
             input_tokens=1,
             output_tokens=1,
         ),
     ]
-    client = RC(script)
+    client = ReplayClient(script)
     cl = Cluster(
-        cluster_id="cluster-001", signature="s", members=[Failure(test="t", message="m", raw_excerpt="")]
+        cluster_id="cluster-001",
+        signature="s",
+        members=[Failure(test="t", message="m", raw_excerpt="")],
     )
     triage_cluster(
-        client=client, config=RegTriageConfig(workspace_root=root, model_id="m"), root=root, cluster=cl
+        client=client,
+        config=RegTriageConfig(workspace_root=root, model_id="m"),
+        root=root,
+        cluster=cl,
     )
     dumped = json.dumps([r.model_dump() for r in client.requests])
     assert evil_id not in dumped
@@ -326,40 +346,46 @@ def test_r2_variant_value_with_colon_and_near_miss_key() -> None:
 
 def test_b1_variant_shared_usd_blocks_second_arm(tmp_path: Path) -> None:
     from regtriage.agent import LlmRequest
-    from regtriage.agent import LlmResponse as LR
     from regtriage.errors import BudgetExceeded
     from regtriage.eval.harness import MeteredClient, _Budget
 
-    def big() -> LR:
-        return LR(content=[], stop_reason="end_turn", input_tokens=500_000, output_tokens=0)
+    def big() -> LlmResponse:
+        return LlmResponse(
+            content=[], stop_reason="end_turn", input_tokens=500_000, output_tokens=0
+        )
 
     shared = _Budget()
-    first = MeteredClient(RC([big()]), max_calls=100, max_usd=100000.0, shared=shared)
+    first = MeteredClient(ReplayClient([big()]), max_calls=100, max_usd=100000.0, shared=shared)
     first.create_message(LlmRequest(model="m", system="", messages=[], tools=[], tool_choice={}))
     assert shared.usd == pytest.approx(1.0)
-    inner_second = RC([big()])
+    inner_second = ReplayClient([big()])
     second = MeteredClient(inner_second, max_calls=100, max_usd=0.5, shared=shared)
     with pytest.raises(BudgetExceeded):
-        second.create_message(LlmRequest(model="m", system="", messages=[], tools=[], tool_choice={}))
+        second.create_message(
+            LlmRequest(model="m", system="", messages=[], tools=[], tool_choice={})
+        )
     assert len(inner_second.requests) == 0
 
 
 def test_b1_variant_blocked_call_freezes_shared_counters() -> None:
     from regtriage.agent import LlmRequest
-    from regtriage.agent import LlmResponse as LR
     from regtriage.errors import BudgetExceeded
     from regtriage.eval.harness import MeteredClient, _Budget
 
     shared = _Budget()
     shared.llm_calls = 100
     metered = MeteredClient(
-        RC([LR(content=[], stop_reason="end_turn", input_tokens=0, output_tokens=0)]),
+        ReplayClient(
+            [LlmResponse(content=[], stop_reason="end_turn", input_tokens=0, output_tokens=0)]
+        ),
         max_calls=100,
         max_usd=100.0,
         shared=shared,
     )
     with pytest.raises(BudgetExceeded):
-        metered.create_message(LlmRequest(model="m", system="", messages=[], tools=[], tool_choice={}))
+        metered.create_message(
+            LlmRequest(model="m", system="", messages=[], tools=[], tool_choice={})
+        )
     assert (metered.llm_calls, shared.llm_calls) == (0, 100)
 
 
@@ -369,7 +395,7 @@ def test_g1_variant_grep_args_reject_timeout_field() -> None:
     from regtriage.agent.tooling import GrepArgs
 
     with pytest.raises(PydanticValidationError):
-        GrepArgs(pattern="x", regex_timeout_seconds=3600.0)
+        GrepArgs(pattern="x", regex_timeout_seconds=3600.0)  # type: ignore[call-arg]
 
 
 def test_g1_variant_schema_hides_timeout_but_grep_works(tmp_path: Path) -> None:
@@ -456,11 +482,18 @@ def test_c1_variant_nul_outside_window_still_rejected(tmp_path: Path) -> None:
         timeout=60,
     )
     sha = subprocess.run(
-        ["git", "-C", str(repo), "rev-parse", "HEAD"], capture_output=True, text=True, timeout=60, check=True
+        ["git", "-C", str(repo), "rev-parse", "HEAD"],
+        capture_output=True,
+        text=True,
+        timeout=60,
+        check=True,
     ).stdout.strip()
     with pytest.raises(ValidationError):
         validate_evidence(
-            repo, Evidence(kind="commit", ref=f"{sha}:blob.bin", line_start=1, line_end=1, quote="clean line")
+            repo,
+            Evidence(
+                kind="commit", ref=f"{sha}:blob.bin", line_start=1, line_end=1, quote="clean line"
+            ),
         )
 
 
@@ -498,7 +531,11 @@ def test_d1_variant_commit_rel_with_colon_denied(tmp_path: Path) -> None:
         timeout=60,
     )
     sha = subprocess.run(
-        ["git", "-C", str(repo), "rev-parse", "HEAD"], capture_output=True, text=True, timeout=60, check=True
+        ["git", "-C", str(repo), "rev-parse", "HEAD"],
+        capture_output=True,
+        text=True,
+        timeout=60,
+        check=True,
     ).stdout.strip()
     # Blocked everywhere; Windows parses `a:b.v` as ADS syntax (path_traversal),
     # POSIX resolves it inside the root (denied_name). Either verdict is safe.

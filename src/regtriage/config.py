@@ -51,7 +51,9 @@ DEFAULT_ESTIMATED_PRICES: dict[str, dict[str, ModelPriceEstimate]] = {
         "m": ModelPriceEstimate(input_usd_per_mtok=2.0, output_usd_per_mtok=10.0),
     },
     "gemini": {
-        DEFAULT_GEMINI_MODEL_ID: ModelPriceEstimate(input_usd_per_mtok=0.75, output_usd_per_mtok=3.75),
+        DEFAULT_GEMINI_MODEL_ID: ModelPriceEstimate(
+            input_usd_per_mtok=0.75, output_usd_per_mtok=3.75
+        ),
         "gemini-2.5-flash": ModelPriceEstimate(input_usd_per_mtok=0.075, output_usd_per_mtok=0.30),
         "gemini-2.5-pro": ModelPriceEstimate(input_usd_per_mtok=1.25, output_usd_per_mtok=5.00),
     },
@@ -77,7 +79,8 @@ def get_model_price_estimate(
     estimate = provider_table.get(model)
     if estimate is None:
         raise ConfigurationError(
-            f"no estimated token pricing configured for model {model!r} under provider {provider!r}",
+            f"no estimated token pricing configured for model {model!r} "
+            f"under provider {provider!r}",
             parameter_name="model",
         )
     return estimate
@@ -165,9 +168,7 @@ class RegTriageConfig(BaseModel):
         description="Maximum number of lines returned by read-only tools",
     )
     model_prices: dict[str, dict[str, ModelPriceEstimate]] = Field(
-        default_factory=lambda: {
-            p: dict(models) for p, models in DEFAULT_ESTIMATED_PRICES.items()
-        },
+        default_factory=lambda: {p: dict(models) for p, models in DEFAULT_ESTIMATED_PRICES.items()},
         description="Estimated token pricing in USD per 1M tokens by provider and model",
     )
 

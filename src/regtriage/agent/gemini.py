@@ -17,7 +17,6 @@ from pydantic import SecretStr
 
 from regtriage.agent.diagnosis import Diagnosis
 from regtriage.agent.protocol import (
-    ConversationMessage,
     LlmRequest,
     LlmResponse,
     TextBlock,
@@ -93,7 +92,9 @@ def flatten_diagnosis_schema() -> dict[str, Any]:
         raise ConfigurationError("Diagnosis schema has no $defs table", parameter_name="model_id")
     flat = _resolve({key: value for key, value in raw.items() if key != "$defs"}, defs)
     if not isinstance(flat, dict):
-        raise ConfigurationError("Diagnosis schema did not flatten to an object", parameter_name="model_id")
+        raise ConfigurationError(
+            "Diagnosis schema did not flatten to an object", parameter_name="model_id"
+        )
     return flat
 
 
@@ -168,14 +169,24 @@ def _to_gemini_contents(request: LlmRequest) -> list[Any]:
                 if isinstance(block, TextBlock):
                     p = types.Part.from_text(text=block.text)
                     if block.provider_state is not None:
-                        p.thought_signature = block.provider_state
+                        sig = (
+                            block.provider_state.encode("utf-8")
+                            if isinstance(block.provider_state, str)
+                            else block.provider_state
+                        )
+                        p.thought_signature = sig
                     parts.append(p)
                 elif isinstance(block, ToolUseBlock):
                     p = types.Part.from_function_call(name=block.name, args=dict(block.input))
                     if block.id and p.function_call is not None:
                         p.function_call.id = block.id
                     if block.provider_state is not None:
-                        p.thought_signature = block.provider_state
+                        sig = (
+                            block.provider_state.encode("utf-8")
+                            if isinstance(block.provider_state, str)
+                            else block.provider_state
+                        )
+                        p.thought_signature = sig
                     parts.append(p)
             if parts:
                 contents.append(types.Content(role="model", parts=parts))
@@ -197,9 +208,7 @@ def _to_gemini_contents(request: LlmRequest) -> list[Any]:
     return contents
 
 
-def _from_gemini_response(
-    raw: Any, id_generator: Callable[[], str] | None = None
-) -> LlmResponse:
+def _from_gemini_response(raw: Any, id_generator: Callable[[], str] | None = None) -> LlmResponse:
     """Translate candidates/usage back; reject unknown part shapes."""
     blocks: list[TextBlock | ToolUseBlock] = []
     candidates: Sequence[Any] = getattr(raw, "candidates", None) or []
@@ -232,7 +241,7 @@ def _from_gemini_response(
         elif getattr(part, "text", None) is not None:
             blocks.append(
                 TextBlock(
-                    text=str(getattr(part, "text") or ""),
+                    text=str(part.text or ""),
                     provider_state=signature,
                 )
             )
@@ -363,8 +372,7 @@ class GeminiClient:
                     wait = min(hint, _GEMINI_BACKOFF_CAP_SECONDS)
                 else:
                     wait = min(
-                        _GEMINI_BACKOFF_BASE_SECONDS * (2.0**attempt)
-                        + random.uniform(0.0, 0.5),  # nosec B311: jitter only, not security use.
+                        _GEMINI_BACKOFF_BASE_SECONDS * (2.0**attempt) + random.uniform(0.0, 0.5),  # nosec B311: jitter only, not security use.
                         _GEMINI_BACKOFF_CAP_SECONDS,
                     )
                 self._sleeper(wait)

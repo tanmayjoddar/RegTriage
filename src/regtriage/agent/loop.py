@@ -60,7 +60,9 @@ def _scrub_value(value: Any, scrubber: SecretRedactor) -> Any:
     if isinstance(value, str):
         return scrubber.redact(value)
     if isinstance(value, dict):
-        return {_scrub_key(key, scrubber): _scrub_value(item, scrubber) for key, item in value.items()}
+        return {
+            _scrub_key(key, scrubber): _scrub_value(item, scrubber) for key, item in value.items()
+        }
     if isinstance(value, list):
         return [_scrub_value(item, scrubber) for item in value]
     if isinstance(value, tuple):
@@ -100,7 +102,9 @@ def _scrub_response(response: LlmResponse, scrubber: SecretRedactor) -> LlmRespo
                     }
                 )
             )
-    return response.model_copy(update={"content": blocks, "stop_reason": scrubber.redact(response.stop_reason)})
+    return response.model_copy(
+        update={"content": blocks, "stop_reason": scrubber.redact(response.stop_reason)}
+    )
 
 
 def _failed_diagnosis(cluster: Cluster, reason: str) -> Diagnosis:
@@ -263,13 +267,13 @@ def triage_cluster(
         # validation. _scrub_response preserves order, so zip pairs them.
         _scrubbed_ids = {
             orig.id: clean.id
-            for orig, clean in zip(response.content, scrubbed.content)
+            for orig, clean in zip(response.content, scrubbed.content, strict=True)
             if isinstance(orig, ToolUseBlock) and isinstance(clean, ToolUseBlock)
         }
 
-        def _echo_id(original_id: str) -> str:
+        def _echo_id(original_id: str, id_map: dict[str, str] = _scrubbed_ids) -> str:
             """Return the scrubbed id for a model-issued tool_use id."""
-            return _scrubbed_ids.get(original_id, scrubber.redact(original_id))
+            return id_map.get(original_id, scrubber.redact(original_id))
 
         results: list[TextBlock | ToolUseBlock | ToolResultBlock] = []
         for block in orig_reads:

@@ -96,6 +96,7 @@ def _redact_json_pairs(text: str) -> str:
         i = value_end
     return "".join(out)
 
+
 _DEFAULT_REDACTION_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
     (
         "[REDACTED_PRIVATE_KEY]",

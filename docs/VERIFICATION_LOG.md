@@ -1926,3 +1926,54 @@ python -m pip install --require-hashes --no-deps -r requirements.lock
 Returncode: 0
 ```
 Verified zero dependency resolution or hash mismatches across all 82 packages.
+
+---
+
+## Task 6: Final Verification Suite (2026-10-10)
+
+Commands run from `D:\Downloads\REG`:
+
+### `python -m ruff check src tests`
+```
+All checks passed!
+RUFF_CHECK_EXIT:0
+```
+
+### `python -m ruff format --check src tests`
+```
+61 files already formatted
+RUFF_FMT_EXIT:0
+```
+
+### `python -m mypy --strict src tests`
+```
+Success: no issues found in 61 source files
+MYPY_EXIT:0
+```
+
+### `python -m bandit -c pyproject.toml -r src`
+```
+Test results:
+	No issues identified.
+Code scanned:
+	Total lines of code: 4300
+	Total lines skipped (#nosec): 0
+	Total potential issues skipped due to specifically being disabled (e.g., #nosec BXXX): 15
+Total issues (by severity):
+	Undefined: 0, Low: 0, Medium: 0, High: 0
+BANDIT_EXIT:0
+```
+
+### `python -m pip_audit -r requirements.lock`
+```
+No known vulnerabilities found
+PIP_AUDIT_EXIT:0
+```
+
+### `python -m pytest --cov=regtriage --cov-branch --cov-report=term-missing`
+```
+TOTAL: 2359 stmts, 144 miss, 712 branch, 53 brpart.
+Required test coverage of 90.0% reached. Total coverage: 92.54%
+====================== 309 passed, 12 skipped in 43.04s =======================
+PYTEST_EXIT:0
+```
