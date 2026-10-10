@@ -12,7 +12,7 @@ class Evidence(BaseModel):
 
     For `log`/`source`, `ref` is a repo-relative path and the window refers
     to file lines. For `commit`, `ref` is `<sha>:<repo-relative-path>` and
-    the quote must appear in that commit's diff for the file.
+    the window refers to blob lines of that path at that commit.
     """
 
     model_config = ConfigDict(extra="forbid", frozen=True)
