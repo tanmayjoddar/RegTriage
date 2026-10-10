@@ -119,3 +119,42 @@ Mostly, but with a caveat I state openly. The shipped `.venv/` (`bin/`, `lib/pyt
 
 **Limitation:**
 I have NOT verified a clean install from `requirements.lock` with `--require-hashes` (the lockfile's hashes are Linux-wheel oriented and this machine is Windows), nor run CI on Linux. Both are listed as NOT YET RUN BY A HUMAN until someone executes the RUNBOOK commands on the target platform.
+
+---
+
+## Slice 2: LocalExecutor + cocotb results parsing + real integration test
+
+### 1. Why does `LocalExecutor` use `Popen` + `communicate(timeout)` + `killpg` instead of `subprocess.run(timeout=...)`?
+**Answer:**
+`subprocess.run(timeout=...)` kills only the direct child on timeout; a simulator that spawned grandchildren (cocotb's `make` → `vvp` → VPI processes) would leave orphans holding licenses and filling `/tmp`. `run_one_job` starts each job in its own session (`start_new_session=True` on POSIX) and, on `TimeoutExpired`, kills the whole process group with `killpg(pid, SIGKILL)` before reaping with a second `communicate()`. A non-POSIX fallback (`proc.kill()`) keeps the code portable, and a Windows-compatible `_SIGKILL` fallback keeps mypy strict clean where `signal.SIGKILL` does not exist.
+
+**Limitation:**
+Group-kill is best-effort: a grandchild that already reparented out of the session (double-fork daemons) still escapes, and on Windows only the direct child dies. The `timed_out` flag in `JobResult` tells the caller the output is partial so triage never treats a killed run as a clean pass.
+
+### 2. Why cap captured stdout/stderr at 200,000 chars with a `[truncated ...]` marker instead of keeping everything?
+**Answer:**
+Simulator logs are unbounded — a verbose regression can emit hundreds of megabytes. Keeping all of it in `JobResult` risks OOM on the triage host and later blows the LLM token ceiling. `_tail` keeps the last 200k chars (failures print at the end of logs, so the tail is the useful part) and the marker records exactly how much was dropped, so downstream code knows the evidence is partial rather than silently complete.
+
+**Limitation:**
+If the root-cause line scrolled past the 200k window (e.g., an early elaboration error followed by megabytes of repeated warnings), the agent never sees it. The mitigation is that parsing (results.xml) and grep tools work on the full on-disk logs; the cap only bounds what rides inside the in-memory result object.
+
+### 3. Why reject `<!DOCTYPE` in results.xml instead of adding defusedxml?
+**Answer:**
+Bandit B405/B314 correctly notes stdlib `ElementTree` is vulnerable to entity-expansion (billion laughs) on untrusted XML. The project's dependency rules forbid new runtime deps, so defusedxml is unavailable. Entity-expansion attacks require a `<!DOCTYPE` declaration, which legitimate cocotb JUnit output never contains, so the parser rejects any file containing one (case-insensitive) before calling `fromstring`, under a 32 MB size cap. A dedicated test feeds a `<!ENTITY>` payload and asserts `ParsingError`.
+
+**Limitation:**
+This is an allowlist-by-absence, not a hardened parser: a future JUnit producer that legitimately emits a DOCTYPE would be rejected, and exotic non-DTD parser bugs in expat remain theoretically reachable. If the dependency policy ever allows it, swapping `ET.fromstring` for defusedxml is a one-line change behind the same interface.
+
+### 4. Why does the integration test write a real Verilog DUT + Makefile instead of mocking the simulator?
+**Answer:**
+Mocks only prove the test matches the mock author's assumptions — a mocked `make` cannot catch a wrong `TOPLEVEL_LANG`, a bad `VERILOG_SOURCES` path, or a results.xml the parser cannot actually read. `test_cocotb_regression_with_icarus` writes a tiny AND-gate DUT, a cocotb test module, and a GNU Makefile, runs `make` through the real `LocalExecutor`, and parses the real `results.xml` — green DUT yields zero failures, OR-gate mutant yields ≥1. When `iverilog`/`cocotb-config`/`make`/cocotb is absent it skips with a printed reason instead of failing, so developer laptops without an HDL toolchain stay green.
+
+**Limitation:**
+On this machine the test has never actually executed (no Icarus/cocotb on Windows) — it is currently a skip, not proof. A real run on a Linux box with Icarus installed is NOT YET RUN BY A HUMAN, as is the question of how slow the double-simulation is on shared CI runners.
+
+### 5. Why are `Executor` and `Parser` Protocols rather than abstract base classes?
+**Answer:**
+Protocols give structural typing: `LocalExecutor` satisfies `Executor` without inheriting anything, so Slice 9's `SlurmExecutor` and test doubles only need matching method signatures — no import coupling to a base class, no fragile `super().__init__` chains, and mypy still checks every call site strictly. For an interview-size codebase this keeps the dependency arrows pointing at the small `executor.py`/`base.py` modules instead of a framework class.
+
+**Limitation:**
+Structural matching is silent: a class with a subtly wrong signature (e.g., `run_jobs` returning a generator) fails only where it is used, not at class definition. The defense is the unit tests, which pass every executor through the same behavioral assertions, plus mypy's protocol checks at assignment points.

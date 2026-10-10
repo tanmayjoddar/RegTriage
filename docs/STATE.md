@@ -1,33 +1,34 @@
 # RegTriage Run State (updated after every slice)
 
-- Last completed slice: 0 (audit and fix of Slice 1)
+- Last completed slice: 2 (LocalExecutor + cocotb results parsing + real
+  integration test)
 - What is done:
-  - Audited Slice 1 as shipped in the ZIP (config, errors, logging redactor,
-    CI skeleton, 35 tests, lockfile, INTERVIEW.md). Baseline ran green before
-    any change; real output in docs/VERIFICATION_LOG.md.
-  - Slice 0a: DEFAULT_MODEL_ID is now `claude-sonnet-5-5` (current Sonnet per
-    Anthropic models overview, verified 2026-10-10). REGTRIAGE_MODEL override
-    kept. `src/` contains exactly one model-ID literal; tests/conftest.py
-    imports it.
-  - Slice 0b: `# nosec B105` in logging.py now states the exact rule and
-    reason (redaction placeholder, not a credential).
-  - Slice 0c: ci.yml pins actions/checkout@11bd7190... (# v4.2.2) and
-    actions/setup-python@a26af69b... (# v5.6.0), SHAs from GitHub API.
-  - docs/VERIFICATION_LOG.md (baseline + slice 0 real output),
-    docs/INTERVIEW.md (+5 Slice 0 Q&A) updated. All 5 checks green, 35 passed.
-- Exact next step: Slice 2 — LocalExecutor + cocotb results parsing + real
-  integration test (new files src/regtriage/runner/*, src/regtriage/parsing/*,
-  tests + fixtures, 5 INTERVIEW Q&A, verification log entry, commit
-  "slice 2: ...").
+  - Slice 0 committed (9b65c02): model default `claude-sonnet-5-5`, nosec
+    B105 justification, pinned CI SHAs, conftest uses DEFAULT_MODEL_ID.
+  - Slice 2: `src/regtriage/runner/` (Executor Protocol, JobSpec/JobResult,
+    LocalExecutor with bounded parallelism, per-job timeout, process-group
+    kill, 200k output cap) and `src/regtriage/parsing/` (Parser Protocol,
+    Failure, CocotbResultsParser with UTF-8/malformed/size/DOCTYPE guards).
+  - Tests: 12 LocalExecutor unit tests (real subprocesses), 12 parser unit
+    tests, 1 slow integration test (real cocotb+Icarus, skips with printed
+    reason here), 3 XML fixtures. 59 passed + 1 skipped, coverage 95.37%.
+  - `slow` marker registered in pyproject.toml. Bandit clean with 5 justified
+    nosecs (B105/B314/B405/B404/B603). All 5 checks green; real output in
+    docs/VERIFICATION_LOG.md; +5 Q&A in docs/INTERVIEW.md.
+- Exact next step: Slice 3 — signature normalization + clustering
+  (`src/regtriage/signature.py`: normalize hex/numbers/timestamps/paths/
+  instance indices, hash, cluster identical, Jaccard merge above threshold)
+  with hypothesis property tests (idempotent, order-independent), 5 INTERVIEW
+  Q&A, verification log entry, commit "slice 3: ...".
 - Open issues:
   - `.venv/` in the repo is Linux-only; verification on this Windows box used
     system Python 3.11.9. Clean Linux install from requirements.lock with
     --require-hashes NOT YET RUN BY A HUMAN.
-  - Template leftovers unrelated to Slice 1 are kept untouched for now:
-    index.html, package.json, tsconfig.json, vite.config.ts, metadata.json,
-    .env.example, requirements.txt, src/App.tsx, src/main.tsx, src/index.css,
-    src/regtriage.egg-info/. Planned: remove the frontend leftovers during
-    Slice 11 docs cleanup (explicit, not silent).
-  - No git repo / remote configured in this directory yet (`git status` not
-    run); first commit still pending — create repo, then commit slices 0
-    onward with messages "slice N: ...".
+  - Integration test has never executed (no iverilog/cocotb here); real sim
+    run on Linux NOT YET RUN BY A HUMAN.
+  - `runner/local.py` lines 30-36 (killpg), 46/72/82 (defensive fallbacks)
+    uncovered on Windows; killpg branch needs Linux CI to cover.
+  - Template leftovers kept untouched and untracked: index.html,
+    package.json, tsconfig.json, vite.config.ts, metadata.json, .env.example,
+    requirements.txt, src/App.tsx, src/main.tsx, src/index.css. Planned
+    removal in Slice 11 (explicit, not silent).

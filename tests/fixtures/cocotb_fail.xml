@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<testsuites>
+  <testsuite name="regression" tests="3" failures="1" errors="1" skipped="0">
+    <testcase classname="test_pcie_dma" name="test_dma_ok" time="1.02" />
+    <testcase classname="test_pcie_dma" name="test_dma_len" time="0.87">
+      <failure message="assert readback == expected at 0x40001000">Traceback (most recent call last):
+  File "/build/test_pcie_dma.py", line 64, in test_dma_len
+    assert readback == expected
+AssertionError: mismatch at addr 0x40001000: got 0xDEAD, want 0xBEEF</failure>
+    </testcase>
+    <testcase classname="test_pcie_msi" name="test_msi_irq" time="0.10">
+      <error message="cocotb: simulator exited with non-zero code 1">simulator output ended early; see sim.log for details</error>
+    </testcase>
+  </testsuite>
+</testsuites>

@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<testsuites>
+  <testsuite name="regression" tests="2" failures="0" errors="0" skipped="0">
+    <testcase classname="test_pcie_cfg" name="test_cfg_read" time="0.42" />
+    <testcase classname="test_pcie_cfg" name="test_cfg_write" time="0.51" />
+  </testsuite>
+</testsuites>

@@ -69,6 +69,9 @@ mypy_path = "src"
 testpaths = ["tests"]
 pythonpath = ["src"]
 addopts = "-v --cov=regtriage --cov-report=term-missing --cov-branch"
+markers = [
+    "slow: integration tests needing external tools (Icarus, cocotb, Slurm shims)",
+]
 
 [tool.coverage.run]
 source = ["regtriage"]
