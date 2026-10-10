@@ -188,23 +188,24 @@ def test_grep_path_prefix_confinement(repo_root: Path) -> None:
 
 def test_grep_invalid_regex_is_clean_error(repo_root: Path) -> None:
     with pytest.raises(SandboxViolationError) as exc_info:
-        grep_source(repo_root, "[unclosed")
+        grep_source(repo_root, "[unclosed", fixed_strings=False)
     assert exc_info.value.violation_type == "invalid_pattern"
 
 
-def test_grep_rejects_redos_pattern_fast(repo_root: Path) -> None:
+def test_grep_redos_pattern_safe_by_default(repo_root: Path) -> None:
     (repo_root / "aaa.txt").write_text("a" * 30 + "!\n", encoding="utf-8")
+    assert grep_source(repo_root, "(a+)+$") == []
     started = time.monotonic()
     with pytest.raises(SandboxViolationError) as exc_info:
-        grep_source(repo_root, "(a+)+$")
+        grep_source(repo_root, "(a+)+$", fixed_strings=False, regex_timeout_seconds=0.5)
     assert time.monotonic() - started < 10.0
-    assert exc_info.value.violation_type == "catastrophic_pattern"
+    assert exc_info.value.violation_type == "regex_timeout"
 
 
-def test_grep_rejects_quantified_alternation(repo_root: Path) -> None:
-    with pytest.raises(SandboxViolationError) as exc_info:
-        grep_source(repo_root, "(a|aa)+$")
-    assert exc_info.value.violation_type == "catastrophic_pattern"
+def test_grep_quantified_alternation_literal_by_default(repo_root: Path) -> None:
+    assert grep_source(repo_root, "(a|aa)+$") == []
+    hits = grep_source(repo_root, "(a|b)", fixed_strings=False, max_results=10)
+    assert isinstance(hits, list)
 
 
 def test_grep_rejects_overlong_pattern(repo_root: Path) -> None:
@@ -242,7 +243,7 @@ def test_grep_skips_oversized_files(tmp_path: Path) -> None:
 
 
 def test_grep_skips_git_dir_and_binaries(git_repo: Path) -> None:
-    hits = grep_source(git_repo, "wire|module|commit")
+    hits = grep_source(git_repo, "wire|module|commit", fixed_strings=False)
     assert all(not hit.path.startswith(".git/") for hit in hits)
     assert all(hit.path != "blob.bin" for hit in hits)
     assert any(hit.path == "rtl/pcie_msi.v" for hit in hits)

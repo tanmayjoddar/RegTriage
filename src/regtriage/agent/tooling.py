@@ -34,6 +34,8 @@ class GrepArgs(BaseModel):
     pattern: str = Field(min_length=1)
     path_prefix: str | None = None
     max_results: int = Field(default=50, ge=1)
+    fixed_strings: bool = True
+    regex_timeout_seconds: float = Field(default=5.0, gt=0)
 
 
 class BlameArgs(BaseModel):
@@ -86,11 +88,14 @@ def agent_tool_schemas() -> list[dict[str, Any]]:
         ),
         _schema(
             GREP_SOURCE,
-            "Search workspace files for a regular expression; returns path:line:text hits.",
+            "Search workspace files for a fixed string (default) or regex with "
+            "fixed_strings=false; returns path:line:text hits.",
             {
                 "pattern": {"type": "string"},
                 "path_prefix": {"type": "string"},
                 "max_results": {"type": "integer", "default": 50},
+                "fixed_strings": {"type": "boolean", "default": True},
+                "regex_timeout_seconds": {"type": "number", "default": 5.0},
             },
             ["pattern"],
         ),
@@ -142,7 +147,12 @@ class ToolRuntime:
         if name == GREP_SOURCE:
             grep_args = GrepArgs.model_validate(args)
             hits = grep_source(
-                self._root, grep_args.pattern, grep_args.path_prefix, grep_args.max_results
+                self._root,
+                grep_args.pattern,
+                grep_args.path_prefix,
+                grep_args.max_results,
+                grep_args.fixed_strings,
+                grep_args.regex_timeout_seconds,
             )
             return "\n".join(f"{hit.path}:{hit.line}:{hit.text}" for hit in hits)
         if name == GIT_BLAME:

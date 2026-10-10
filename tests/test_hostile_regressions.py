@@ -338,3 +338,92 @@ def test_probe_4_tool_input_scrubbed_in_echo_but_executed_raw(tmp_path: Path) ->
     assert shaped not in dumped
     assert "sim.log" in dumped
     assert "[REDACTED_AWS_KEY]" in dumped
+
+
+def _ws_with(tmp_path: Path, files: dict[str, str]) -> Path:
+    root = tmp_path / "ws"
+    root.mkdir(exist_ok=True)
+    for rel, text in files.items():
+        target = root / rel
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(text, encoding="utf-8")
+    return root
+
+
+def test_probe_7_default_search_is_literal(tmp_path: Path) -> None:
+    from regtriage.tools import grep_source
+
+    root = _ws_with(tmp_path, {"a.txt": "value (a+)+$ here\naaaa\n"})
+    hits = grep_source(root, "(a+)+$")
+    assert [(h.path, h.line) for h in hits] == [("a.txt", 1)]
+
+
+def test_probe_7_regex_meta_needs_opt_in(tmp_path: Path) -> None:
+    from regtriage.tools import grep_source
+
+    root = _ws_with(tmp_path, {"a.txt": "a|b literal\na alone\nb alone\n"})
+    assert [(h.path, h.line) for h in grep_source(root, "a|b")] == [("a.txt", 1)]
+    assert len(grep_source(root, "a|b", fixed_strings=False)) == 3
+
+
+def test_probe_7_catastrophic_regex_killed_by_timeout(tmp_path: Path) -> None:
+    import time as _time
+
+    from regtriage.errors import SandboxViolationError
+    from regtriage.tools import grep_source
+
+    root = _ws_with(tmp_path, {"evil.txt": "a" * 100 + "!\n"})
+    started = _time.monotonic()
+    with pytest.raises(SandboxViolationError) as exc_info:
+        grep_source(root, "(a+)+$", fixed_strings=False, regex_timeout_seconds=0.5)
+    assert _time.monotonic() - started < 10.0
+    assert exc_info.value.violation_type == "regex_timeout"
+
+
+def test_fix_7_empty_pattern_rejected(tmp_path: Path) -> None:
+    from regtriage.errors import SandboxViolationError
+    from regtriage.tools import grep_source
+
+    root = _ws_with(tmp_path, {"a.txt": "x\n"})
+    with pytest.raises(SandboxViolationError) as exc_info:
+        grep_source(root, "")
+    assert exc_info.value.violation_type == "invalid_pattern"
+
+
+def test_fix_7_invalid_regex_opt_in_is_clean_error(tmp_path: Path) -> None:
+    from regtriage.errors import SandboxViolationError
+    from regtriage.tools import grep_source
+
+    root = _ws_with(tmp_path, {"a.txt": "x\n"})
+    with pytest.raises(SandboxViolationError) as exc_info:
+        grep_source(root, "([a-z]+$", fixed_strings=False)
+    assert exc_info.value.violation_type == "invalid_pattern"
+
+
+def test_fix_7_reasonable_regex_completes_in_time(tmp_path: Path) -> None:
+    from regtriage.tools import grep_source
+
+    root = _ws_with(tmp_path, {"a.txt": "alpha\nbeta\ngamma\n"})
+    hits = grep_source(root, "(alpha|beta)$", fixed_strings=False, regex_timeout_seconds=5.0)
+    assert [(h.path, h.line) for h in hits] == [("a.txt", 1), ("a.txt", 2)]
+
+
+def test_fix_7_skips_apply_in_regex_mode(tmp_path: Path) -> None:
+    from regtriage.tools import grep_source
+
+    root = _ws_with(tmp_path, {"small.txt": "needle here\n"})
+    big = root / "big.txt"
+    with open(big, "wb") as handle:
+        handle.write(b"needle " * 100_000)
+    assert [h.path for h in grep_source(root, "needle", fixed_strings=False)] == ["small.txt"]
+    assert grep_source(root, "needle.{0,50}here", fixed_strings=False)[0].path == "small.txt"
+
+
+def test_fix_7_dispatcher_passes_opt_in(tmp_path: Path) -> None:
+    from regtriage.agent import ToolRuntime
+
+    root = _ws_with(tmp_path, {"a.txt": "abc 123\n"})
+    runtime = ToolRuntime(root)
+    assert runtime.dispatch("grep_source", {"pattern": "abc"}) != ""
+    out = runtime.dispatch("grep_source", {"pattern": "(abc|zzz)", "fixed_strings": False})
+    assert "a.txt:1:" in out
