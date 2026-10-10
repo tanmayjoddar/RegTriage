@@ -1,30 +1,40 @@
 # RegTriage Run State (updated after every slice)
 
-- Last completed slice: 9 (SlurmExecutor + systemd + infra docs)
+- Last completed slice: 10 (UVM + Verilator parsers + fixtures + tests)
 - What is done:
-  - Slices 0, 2-8 committed; CI green incl. matrix --require-hashes jobs.
-  - Slice 9: `src/regtriage/runner/slurm.py` (sbatch --parsable, poll,
-    scancel, template) + `tests/test_runner_slurm.py` (3 portable + 7
-    POSIX-shim tests, skipped here, run on Linux CI) + `deploy/` units +
-    `docs/INFRA.md` (all commands NOT YET RUN BY A HUMAN).
-  - 212 passed + 11 skipped, coverage 95.01% (slurm.py full on Linux).
-    All 5 checks green (bandit: 11 justified nosecs); log + INTERVIEW done.
-- Exact next step: Slice 10 — UVM + Verilator parsers (cut candidate #1
-  if budget forces it, but it is small: mirror the cocotb parser).
-  New: `src/regtriage/parsing/uvm.py` (UVM_ERROR/UVM_FATAL),
-  `src/regtriage/parsing/verilator.py` (%Warning/%Error),
-  `tests/fixtures/uvm*.log + verilator*.log`, `tests/test_parsing_extra.py`.
-  +5 INTERVIEW Q&A; log entry; commit "slice 10: ...".
-  Then Slice 11 (README/RUNBOOK/THREAT_MODEL/RESULTS stub, remove template
-  leftovers explicitly), then mandatory final self-audit +
-  docs/COMPLETION_REPORT.md.
-- Open issues:
-  - Live Anthropic calls NEVER made; forced-submit quality unmarked.
-  - Real eval NEVER run (needs Linux + Icarus + cocotb + key).
-  - Manual timing CSV has zero rows (honest template).
-  - Platform-gated skips (iverilog, symlinks, POSIX modes, make, slurm
-    shims) run on Linux CI; this box covers the portable subset.
-  - RUNBOOK.md lands in Slice 11; human-only items live here till then.
-  - Threshold 0.75 unevaluated (needs real eval numbers).
-  - Template leftovers kept untouched and untracked. Planned removal in
-    Slice 11 (explicit, not silent).
+  - Slices 0, 2-9 committed; CI green incl. matrix --require-hashes jobs.
+  - Slice 10: `src/regtriage/parsing/` +logs.py/uvm.py/verilator.py,
+    4 fixtures, `tests/test_parsing_extra.py` (8 tests). uvm/verilator
+    100%, logs 92% (read-race guard, same class as validator 42-43).
+  - 220 passed + 11 skipped, coverage 95.13%. All 5 checks green
+    (bandit: 11 justified nosecs); log + INTERVIEW updated.
+- Exact next step: Slice 11 (last feature slice) — README, RUNBOOK,
+  THREAT_MODEL, generated RESULTS stub + template removal. Work:
+  1. `README.md`: Mermaid diagram, quickstart, design decisions, security
+     model, limitations, results table generated from eval/results.json
+     ("not yet run" if absent — it IS absent; generate, do not hand-write).
+     Small generator: reuse render_results_markdown? README table needs its
+     own snippet — write `scripts/`? NO new deps; inline python in docs?
+     Simplest honest: README contains a static "not yet run" table now +
+     documents the `eval-report` regeneration command. No fabricated numbers.
+  2. `docs/RUNBOOK.md`: ordered exact commands (install Icarus, clone+pin,
+     API key, run eval, manual timing, Slurm/NFS, systemd units).
+  3. `docs/THREAT_MODEL.md`: untrusted logs/source, prompt injection,
+     delimiters, redaction, secret handling, mutant isolation.
+  4. `docs/RESULTS.md`: generate via eval-report from ABSENT results.json?
+     Cannot — write the stub manually stating "not yet run" + limitations
+     (this is the specified stub behavior, not fabricated results).
+  5. `.pre-commit-config.yaml` (detect-secrets hook) — required by hard rules.
+  6. Remove template leftovers EXPLICITLY (list in commit message + here):
+     index.html, package.json, tsconfig.json, vite.config.ts, metadata.json,
+     .env.example, requirements.txt, src/App.tsx, src/main.tsx,
+     src/index.css. Keep: src/regtriage.egg-info? Remove too (build artifact).
+     Keep .venv? It is gitignored... .venv is NOT tracked (gitignored? check:
+     .gitignore has .venv/ — yes added slice 0). Leave on disk, untracked.
+  7. +5 INTERVIEW Q&A; log entry; commit "slice 11: ...".
+- Then: MANDATORY final self-audit (clean venv install from lockfile —
+  impossible on this Windows box with Linux hashes; do closest equivalent +
+  record honestly; dead-code grep; docs/COMPLETION_REPORT.md with per-row
+  proof + unverified-claims list; short COMPLETION_REPORT even if cut).
+- Open issues: (same as before +) live LLM/sim/eval/INFRA runs all
+  NOT YET RUN BY A HUMAN; manual CSV empty; threshold unevaluated.

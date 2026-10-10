@@ -1406,6 +1406,93 @@ Slice 9 verdict: green, 212 passed + 11 skipped, coverage 95.01%.
 
 ---
 
+## Slice 10: UVM + Verilator parsers with fixtures and tests (2026-10-10)
+
+New files: `src/regtriage/parsing/logs.py` (shared strict read guards),
+`src/regtriage/parsing/uvm.py` (UVM_ERROR/UVM_FATAL with line numbers),
+`src/regtriage/parsing/verilator.py` (%Warning/%Error with codes and line
+numbers), `tests/test_parsing_extra.py` (8 tests),
+`tests/fixtures/uvm_{pass,fail}.log` + `verilator_{pass,fail}.log`.
+
+Mid-slice: fixture comment header lines shift expected line numbers
+(expectations corrected, not the parser); cross-module private-constant
+import renamed to public `DEFAULT_MAX_*`.
+
+### `python -m ruff check src tests`
+```
+All checks passed!
+RUFF:0
+```
+
+### `python -m ruff format --check src tests`
+```
+57 files already formatted
+FMT:0
+```
+
+### `python -m mypy --strict src tests`
+```
+Success: no issues found in 57 source files
+MYPY:0
+```
+
+### `python -m bandit -c pyproject.toml -r src`
+(Bandit output below is verbatim except the trailing `[main] INFO` lines and
+the benign `[manager] WARNING: Test in comment` echoes, unchanged from
+Slice 2, which are omitted for length.)
+```
+Run started:2026-10-10 14:34:09.842986+00:00
+
+Test results:
+	No issues identified.
+
+Code scanned:
+	Total lines of code: 3318
+	Total lines skipped (#nosec): 0
+	Total potential issues skipped due to specifically being disabled (e.g., #nosec BXXX): 11
+
+Run metrics:
+	Total issues (by severity):
+		Undefined: 0
+		Low: 0
+		Medium: 0
+		High: 0
+	Total issues (by confidence):
+		Undefined: 0
+		Low: 0
+		Medium: 0
+		High: 0
+Files skipped (0):
+BANDIT:0
+```
+
+### `python -m pytest --cov=regtriage --cov-branch --cov-report=term-missing`
+(231 items collected; earlier suites pass unchanged — only the 8 new
+parsing-test lines are reproduced here verbatim, plus the affected rows.)
+```
+tests/test_parsing_extra.py::test_uvm_pass_has_no_failures PASSED        [ 52%]
+tests/test_parsing_extra.py::test_uvm_fail_lines_parsed PASSED           [ 53%]
+tests/test_parsing_extra.py::test_uvm_ignores_info_lines PASSED          [ 53%]
+tests/test_parsing_extra.py::test_verilator_pass_has_no_failures PASSED  [ 54%]
+tests/test_parsing_extra.py::test_verilator_fail_lines_parsed PASSED     [ 54%]
+tests/test_parsing_extra.py::test_log_parsers_reject_bad_inputs PASSED   [ 55%]
+tests/test_parsing_extra.py::test_log_parsers_reject_bad_limits PASSED   [ 55%]
+tests/test_parsing_extra.py::test_read_log_text_returns_lines PASSED     [ 55%]
+src\regtriage\parsing\logs.py              20      2      6      0    92%   25-26
+src\regtriage\parsing\uvm.py               25      0      8      0   100%
+src\regtriage\parsing\verilator.py         25      0     8      0   100%
+TOTAL                                    1845     76    494     14    95%
+Required test coverage of 90.0% reached. Total coverage: 95.13%
+====================== 220 passed, 11 skipped in 35.07s ========================
+PYTEST_EXIT:0
+```
+logs.py 25-26 is the read-race guard (uncoverable without a forced TOCTOU
+race, same class as validator 42-43).
+
+Slice 10 verdict: green, 220 passed + 11 skipped, coverage 95.13%.
+
+---
+
 ## CI fix: broken lockfile install step (2026-10-10)
 
 Symptom: both GitHub CI runs failed in ~9s at "Install dependencies from

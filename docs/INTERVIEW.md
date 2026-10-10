@@ -431,3 +431,42 @@ They serve different readers: the code template is the tested source of truth (u
 
 **Limitation:**
 Headers do not enforce anything: the two templates can and eventually will drift, and nothing fails when they do. The honest fix (single source generating both, with a test diffing them) is small and I did not build it — flagged here so it is a conscious debt, not an accident.
+
+---
+
+## Slice 10: UVM + Verilator parsers with fixtures and tests
+
+### 1. Why do the UVM/Verilator parsers share `read_log_text` instead of each reading files?
+**Answer:**
+All three file parsers (cocotb XML, UVM lines, Verilator lines) need identical guards: missing-file, oversized-file, and invalid-UTF-8 rejection with the same `ParsingError` shapes. One helper means one place where the guard semantics live — and one place the Slice 5 decoding contract (`errors` handling) must be reconciled with. The cocotb parser predates the helper and keeps its inline version; unifying it would be churn without behavior change, so the helper is used by the two new parsers only.
+
+**Limitation:**
+Two guard implementations (cocotb inline, `read_log_text` shared) can now drift — e.g., someone raises the cocotb cap but not the shared one. Worse, the cocotb parser decodes strictly while tools decode with replacement, an inconsistency the Slice 5 contract already flagged. A single reader for all three parsers is the obvious cleanup and is not done.
+
+### 2. Why do these parsers record line numbers while the cocotb parser leaves them `None`?
+**Answer:**
+Line-oriented logs have a natural citation unit: the UVM_ERROR on line 3 *is* the evidence, so `Failure.line` carries it and the validator can check narrow windows. JUnit XML has no line information — failure elements do not map to file lines — so the cocotb parser honestly reports `None` rather than inventing a number. The schema allows both, and the validator treats `None` as "whole-file scope" only implicitly (it still requires the quote in the cited window, which for XML means the caller must supply lines).
+
+**Limitation:**
+A `None`-line citation is weaker: nothing pins *where* in the file the quote must appear beyond the caller's window. For cocotb evidence the agent typically cites the whole failure excerpt with a best-guess window, which the validator may reject for large logs — a real friction point between parser output and validator strictness, untested end to end here.
+
+### 3. Why regexes anchored on `UVM_(ERROR|FATAL)` and `%(Warning|Error)` rather than a generic severity parser?
+**Answer:**
+Each format has a fixed, documented diagnostic vocabulary — matching exactly those tokens keeps false positives at zero (a passing `UVM_INFO TEST PASSED` line must never become a Failure, pinned by test). A generic "severity-looking" pattern would invent failures from info lines and break the clusterer's assumption that every Failure is a real breakage. The patterns are flat (no nesting), consistent with the project's linear-time rule for untrusted log text.
+
+**Limitation:**
+Vendor prefixes vary (`UVM_WARNING` exists in the standard but is deliberately excluded as non-fatal; some simulators emit `uvm_error` lowercase). The parser covers the two fatal severities only — warnings that precede real failures are invisible to triage. That is a scope decision, not an oversight, but it should be revisited if eval shows warning-context matters.
+
+### 4. Why strict UTF-8 (raise) here while the read tools use replacement?
+**Answer:**
+Parsers produce the canonical Failure records the whole pipeline trusts; silently replacing bytes at this layer would mint evidence quotes containing `U+FFFD` that look authoritative but are lossy guesses. The read tools replace because an agent browsing a log should see past one bad byte; the parser raises because a triage input must be exact or explicitly rejected. Both behaviors are pinned by tests, and the difference is intentional layering, not inconsistency — though it does mean a log the tools can browse may fail to parse.
+
+**Limitation:**
+Strictness makes the parser brittle on real-world logs with mixed encodings (latin-1 tool banners are common in EDA output) — such a log yields zero failures with a ParsingError instead of degraded results. A `--lenient` parse mode returning what decoded cleanly would be more useful in production and is not implemented.
+
+### 5. Slice 10 was first on the cut list — why keep it, and what would cutting have cost?
+**Answer:**
+The cut order listed UVM/Verilator first because cocotb covers the primary regression path. I kept it because it was cheap (mirrors the cocotb parser, ~150 lines + fixtures) and because the spec's threat model explicitly names UVM/commercial-simulator logs as required coverage "beyond the sample parsers" — shipping only cocotb would leave that clause entirely unproven. Cutting it would have saved one commit at the cost of an explicit spec gap in the final audit.
+
+**Limitation:**
+These are still *sample* parsers over hand-written fixtures, not proofs against real VCS/Xcelium/Questa logs, whose formats differ in details (timestamps, multi-line reports, tool banners). The fixtures document the covered subset; anything outside them is untested by construction.
