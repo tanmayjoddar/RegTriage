@@ -473,6 +473,45 @@ These are still *sample* parsers over hand-written fixtures, not proofs against 
 
 ---
 
+## Hostile review response: 7 findings, all fixed
+
+### 1. Why did you replace regex-sniffing with a child process instead of fixing the sniffer?
+**Answer:**
+Sniffing is undecidable whack-a-mole: my two static rules covered `(a+)+` but the reviewer's `(a|aa)+$` sailed through, and any rule set has both false positives (blocking legit `(?:a|b)+`) and false negatives. The redesign removes the question entirely — literal search by default cannot backtrack by construction (there is no engine), and opt-in regex runs in a sacrificial `sys.executable -c` child over a stdin JSON protocol that the parent kills on timeout. Security now rests on process isolation and a clock, both total, instead of on my ability to enumerate evil shapes.
+
+**Limitation:**
+A killed search returns nothing (all-or-nothing per call), so a mostly-fine regex that blows up on one pathological line yields zero hits instead of partial ones. Spawning a Python interpreter per opt-in grep also costs ~50ms floor — irrelevant for agent-paced use, but this would be the wrong design for an interactive search tool.
+
+### 2. Why do tools execute with original arguments while echoes carry scrubbed ones?
+**Answer:**
+Two different trust boundaries: the model/egress boundary (must never see secrets) and the local-execution boundary (the operator's machine running an explicit pattern). Scrubbing tool inputs before execution would silently change what gets searched — a grep for a password string would return empty with no explanation. So the loop scrubs the *copies* (re-sent messages, audit records) and dispatches the *originals*; results re-enter through the existing redaction choke point. The test pins both halves: the hit proves original execution, the redacted echo proves clean egress.
+
+**Limitation:**
+A secret-bearing pattern still executes locally and its raw match transits memory — only shaped matches get redacted on return. Bare-token matches reach the model raw (the documented redaction blind spot), so this split does not fully contain secret-bearing searches; it contains secret-bearing *conversations about* searches.
+
+### 3. Why did scrubbing GIT_* break blame, and why is NOSYSTEM the line you won't cross?
+**Answer:**
+Nine experiments isolated it: `GIT_CONFIG_NOSYSTEM=1` plus an empty global config collapses Git-for-Windows multi-commit blame to all-zero SHAs (single vars harmless; restoring `core.autocrlf=true` via COUNT repairs it). The mechanism is conversion-context loss, and the lesson is that git's *reads* depend on configuration state, not just flags. So the final design scrubs every `GIT_*` variable (killing the demonstrated DIR+WORK_TREE hijack and all config-injection channels), replaces the user global with the null device, and pins the ceiling — but inherits system config and conversion, because our writes and reads sharing one environment always agree, on every platform tested. The review's letter is followed except where following it provably breaks the product, and the deviation is recorded with experiment numbers, not asserted.
+
+**Limitation:**
+A malicious *system* gitconfig (root-controlled) is now explicitly trusted — same trust as `$PATH`. On a hostile multi-tenant login node with a poisoned `/etc/gitconfig`, alias/diff-driver attacks via the system file would still land. That surface belongs to machine provisioning, not this codebase, but the boundary should be stated plainly, as here.
+
+### 4. Why check commit citations against the blob instead of the diff?
+**Answer:**
+The old check (quote anywhere in the whole diff + sane-looking line numbers) let a citation claim lines 1–1 while quoting line 500 — the window was decorative. Blob-anchored checks make commit citations as rigorous as file citations: sha exists, file touched, window inside blob length, normalized quote inside the window. The diff is no longer consulted at all. Along the way this exposed that text-mode subprocess decoding errors die in a reader thread (output silently `None`), so the git runner is now bytes-cored with explicit decode — fixing a latent locale-dependent crash class, not just the validator.
+
+**Limitation:**
+`git show sha:path` fails for paths renamed after the commit or stored with different case on case-insensitive filesystems — legitimate citations can be rejected on mechanical grounds. And blob windows say nothing about whether the cited lines are *relevant*, only that they exist verbatim; relevance remains the model's un unchecked claim.
+
+### 5. Why did the documented-verified CI stay red through three wrong theories before the fixture answer?
+**Answer:**
+Each wrong theory was locally consistent: the dash shim bug was real (just latent), the deadline mechanism is genuinely stochastic, and Windows green + Linux red fit all three stories. What broke the streak was changing the experiment instead of the theory — a fresh LF clone reproduced 6/224 instantly, pointing at file presence rather than behavior. The process lessons are concrete: `git status --porcelain --ignored` is now pre-push habit, fixture presence is asserted by the suite's own collection (missing files fail loudly, which is what saved us), and the log records retracted theories with strikethrough-style updates rather than editing them away — because the next reviewer should see what was tried, not just what worked.
+
+**Limitation:**
+Retraction discipline depends on honesty under time pressure; nothing in the tooling forces me to record a wrong theory instead of quietly deleting it. The verification log's value is exactly proportional to that discipline, and this section is where I prove I have it.
+
+---
+
 ## Slice 11: README, RUNBOOK, THREAT_MODEL, RESULTS stub, pre-commit
 
 ### 1. Why does the README show a "not yet run" results table instead of omitting results?

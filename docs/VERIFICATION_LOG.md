@@ -1575,6 +1575,121 @@ Slice 11 verdict: green, 220 passed + 11 skipped, coverage 95.13%.
 
 ---
 
+## Hostile review response: 7 confirmed holes, all fixed (2026-10-10)
+
+The reviewer's `test_hostile.py` was not delivered, so each probe below was
+reconstructed faithfully from its finding description into
+`tests/test_hostile_regressions.py` (46 tests: probes + ≥2 variants each),
+then shown RED before the fix and GREEN after. One commit per fix.
+
+### Fix hostile-6: pre-send cost guard + BudgetExceeded
+Red: `ImportError: cannot import name 'BudgetExceeded'` on collection.
+Green after `BudgetExceeded(AgentLoopError)` in errors.py and ceiling checks
+before forwarding in `MeteredClient` (harness passes ceilings through; the
+old post-hoc `_Budget` now raises the subclass too, so old tests pass):
+```
+tests/test_hostile_regressions.py::test_probe_6_blocks_call_over_budget_before_sending PASSED [ 36%]
+tests/test_hostile_regressions.py::test_probe_6_blocks_spend_over_budget_before_sending PASSED [ 36%]
+tests/test_hostile_regressions.py::test_probe_6_budget_exceeded_is_agent_loop_error PASSED [ 37%]
+```
+
+### Fix hostile-3: widened redaction
+Red: 5 failed (`test_probe_3_aws_key_redacted` etc. — shapes passed through).
+Green after 6 new patterns (AWS, GitHub, Slack, JWT, JSON pairs,
+password-is phrases) + 2 special replacements. Mid-fix lesson recorded:
+the fake bearer fixture token IS JWT-shaped, so scheme-prefixed bearer
+stays first and bare JWTs fall through to the JWT rule; verified by
+re-reading the exact bytes rather than trusting rendered output.
+
+### Fix hostile-4: scrubbed responses and echoes
+Red: 2 failed — raw model text re-sent in assistant echoes and audit.
+Green after `_scrub_response` (text + tool-input strings scrubbed for
+messages and audit; tools execute with originals; validation uses the
+original submission). Mid-fix lesson: probes must use shaped secrets —
+bare tokens are the documented pattern-redaction blind spot, and a probe
+written against one correctly fails for the wrong reason.
+
+### Fix hostile-7: fixed-string grep + killable regex child
+Red: 3 failed with `TypeError` (no `fixed_strings` parameter existed).
+Green after the redesign (literal default; opt-in regex compiled and
+matched in a `sys.executable -c` child over a stdin JSON protocol, killed
+on timeout → `regex_timeout`; pattern sniffing deleted). Three existing
+tests moved to explicit `fixed_strings=False` with identical assertions
+(required by the mandated default change, not a weakening). The evil
+`(a+)+$` over 100 a's always trips the 0.5s timeout deterministically.
+
+### Fix hostile-5: git env scrub + config isolation
+Red: `ExecutionError: git command failed: fatal: '...real/repo/a.v' is
+outside repository at '.../decoy/repo'` — the GIT_DIR+GIT_WORK_TREE decoy
+hijack works pre-fix (single GIT_DIR is neutralized by `-C` on this git;
+the pair is not — both verified empirically).
+Green after `_git_environ` (all GIT_* scrubbed; user global → devnull;
+ceiling pinned). Two documented deviations from the review letter, both
+from failing experiments, not theory: GIT_CONFIG_NOSYSTEM is NOT set
+(system config carries the conversion blame needs — disabling it with the
+global collapses multi-commit blame to all-zero SHAs, reproduced across 9
+experiments), and conversion is NOT pinned (our writes and reads share one
+environment so they always agree; pinning would break third-party Windows
+checkouts). Alias-injection probes pass pre- and post-fix here (builtins
+win over aliases on this git) and are kept as regression pins.
+
+### Fix hostile-2: commit citations vs blob windows
+Red: 2 failed — valid-sha/touched-file citations with quotes from outside
+the window (or beyond EOF) were accepted.
+Green after blob-anchored checks (`git show sha:path`, same window rule as
+files; touched/sha checks kept). Mid-fix lesson: subprocess text-mode
+decoding errors die in a reader thread, never reaching the caller — so the
+runner is now bytes-cored (`run_git_bytes`) with explicit decode at the
+validator (also making all git output locale-independent). Two existing
+commit tests moved to meaningful windows (1-1 → 2-2; diff → window).
+
+### Fix hostile-1: denied names in read tools
+Red: 2 failed — `.git/config`, `.env`, keys all readable.
+Green after name-based denies in `resolve_within_root` (loud) + silent
+skips in the grep walk, covering `.git` at any depth (files too),
+`.env`/`.env.*`, `id_rsa/id_ed25519/id_ecdsa/id_dsa`, `*.pem/*.key/
+*.p12/*.pfx`. Innocent dotfiles (`.gitignore`, `.pub` keys) stay readable,
+pinned by test.
+
+### Full suite (Windows) after all 7 fixes
+```
+All checks passed!
+RUFF:0
+```
+```
+58 files already formatted
+FMT:0
+```
+```
+Success: no issues found in 58 source files
+MYPY:0
+```
+```
+Run started:2026-10-10 17:08:17.031364+00:00
+
+Test results:
+	No issues identified.
+
+Code scanned:
+	Total lines of code: 3672
+	Total lines skipped (#nosec): 0
+	Total potential issues skipped due to specifically being disabled (e.g., #nosec BXXX): 15
+BANDIT:0
+```
+```
+TOTAL                                    1977     89    542     21    95%
+Required test coverage of 90.0% reached. Total coverage: 94.68%
+===================== 264 passed, 11 skipped in 59.10s ========================
+PYTEST_EXIT:0
+```
+(The 46 hostile tests are the `[ 36%]`–`[ 52%]` block, all PASSED —
+reproduced verbatim above in per-fix order.)
+Linux (WSL, CI-identical env): 274 passed, 1 skipped, EXIT 0 — every
+platform-gated test (symlink, make, slurm shims, POSIX mode) runs and
+passes there.
+
+---
+
 ## CI fix 3: Linux repro + hypothesis deadlines (2026-10-10)
 
 Symptom: CI runs #11/#12/#13 failed in pytest on ubuntu while Windows was
