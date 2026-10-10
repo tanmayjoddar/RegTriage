@@ -462,3 +462,53 @@ def test_tool_call_ids_unique_across_turns_when_missing() -> None:
     ]
     assert tool_resp_names == ["tool_a", "tool_b"]
 
+
+def test_thought_signature_round_trip_preserved_and_unmangled_and_not_in_audit() -> None:
+    from regtriage.agent.gemini import _to_gemini_contents
+    from regtriage.agent.loop import _scrub_response
+    from regtriage.logging import SecretRedactor
+
+    fake = _FakeGeminiSdk()
+    raw_sig = b"opaque-cryptographic-thought-signature-bytes"
+    fake.models.script.append(
+        _gemini_response([
+            SimpleNamespace(
+                text=None,
+                function_call=SimpleNamespace(name="read_file", args={"path": "top.v"}, id="call-99"),
+                thought_signature=raw_sig,
+            )
+        ])
+    )
+    client = _client(fake)
+    resp = client.create_message(_request())
+    assert len(resp.content) == 1
+    call = resp.content[0]
+    assert isinstance(call, ToolUseBlock)
+    # 1. Signature captured exactly on provider_state
+    assert call.provider_state == raw_sig
+
+    # 2. Excluded from audit model_dump
+    dumped = resp.model_dump()
+    assert "provider_state" not in dumped["content"][0]
+    assert raw_sig.decode("latin1") not in json.dumps(dumped)
+
+    # 3. Excluded from redaction mangling
+    redactor = SecretRedactor()
+    scrubbed = _scrub_response(resp, redactor)
+    assert scrubbed.content[0].provider_state == raw_sig
+
+    # 4. Attached back to Part when reconstructed in contents
+    turn_request = _request(
+        messages=[
+            ConversationMessage(role="user", content=[TextBlock(text="start")]),
+            ConversationMessage(role="assistant", content=[call]),
+            ConversationMessage(role="user", content=[ToolResultBlock(tool_use_id=call.id, content="verilog")]),
+        ]
+    )
+    contents = _to_gemini_contents(turn_request)
+    model_turn = contents[1]
+    assert model_turn.role == "model"
+    part = model_turn.parts[0]
+    assert getattr(part, "thought_signature", None) == raw_sig
+
+

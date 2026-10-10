@@ -166,9 +166,17 @@ def _to_gemini_contents(request: LlmRequest) -> list[Any]:
             parts: list[Any] = []
             for block in message.content:
                 if isinstance(block, TextBlock):
-                    parts.append(types.Part.from_text(text=block.text))
+                    p = types.Part.from_text(text=block.text)
+                    if block.provider_state is not None:
+                        p.thought_signature = block.provider_state
+                    parts.append(p)
                 elif isinstance(block, ToolUseBlock):
-                    parts.append(types.Part.from_function_call(name=block.name, args=dict(block.input)))
+                    p = types.Part.from_function_call(name=block.name, args=dict(block.input))
+                    if block.id and p.function_call is not None:
+                        p.function_call.id = block.id
+                    if block.provider_state is not None:
+                        p.thought_signature = block.provider_state
+                    parts.append(p)
             if parts:
                 contents.append(types.Content(role="model", parts=parts))
         else:
@@ -199,6 +207,11 @@ def _from_gemini_response(
     parts: Sequence[Any] = getattr(content, "parts", None) or []
     for index, part in enumerate(parts):
         call = getattr(part, "function_call", None)
+        signature = getattr(part, "thought_signature", None)
+        if signature is None and call is not None:
+            signature = getattr(call, "thought_signature", None)
+        if signature is None:
+            signature = getattr(part, "signature", None)
         if call is not None and getattr(call, "name", None):
             args = getattr(call, "args", None) or {}
             raw_id = getattr(call, "id", None)
@@ -209,10 +222,20 @@ def _from_gemini_response(
             else:
                 call_id = f"call-{uuid.uuid4().hex[:12]}"
             blocks.append(
-                ToolUseBlock(id=str(call_id), name=str(call.name), input=dict(args))
+                ToolUseBlock(
+                    id=str(call_id),
+                    name=str(call.name),
+                    input=dict(args),
+                    provider_state=signature,
+                )
             )
         elif getattr(part, "text", None) is not None:
-            blocks.append(TextBlock(text=str(getattr(part, "text") or "")))
+            blocks.append(
+                TextBlock(
+                    text=str(getattr(part, "text") or ""),
+                    provider_state=signature,
+                )
+            )
         else:
             raise AgentLoopError(f"unsupported Gemini part shape at index {index!r}")
     usage = getattr(raw, "usage_metadata", None)

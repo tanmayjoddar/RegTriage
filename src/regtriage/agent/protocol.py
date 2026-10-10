@@ -12,6 +12,7 @@ class TextBlock(BaseModel):
 
     type: Literal["text"] = "text"
     text: str = ""
+    provider_state: bytes | str | None = Field(default=None, exclude=True)
 
 
 class ToolUseBlock(BaseModel):
@@ -23,6 +24,7 @@ class ToolUseBlock(BaseModel):
     id: str = Field(min_length=1)
     name: str = Field(min_length=1)
     input: dict[str, Any] = Field(default_factory=dict)
+    provider_state: bytes | str | None = Field(default=None, exclude=True)
 
 
 class ToolResultBlock(BaseModel):
