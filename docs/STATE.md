@@ -1,6 +1,6 @@
 # RegTriage Run State (updated after every slice)
 
-- Current task: Task 4 - Regenerate hash-pinned requirements.lock including google-genai and run pip-audit.
+- Current task: Task 5 - Docs updates (`THREAT_MODEL.md`, `README.md`, `HOSTILE_REVIEW.md`, `VERIFICATION_LOG.md`, `COMPLETION_REPORT.md`).
 - Done:
   - Slices 0-11 per `docs/COMPLETION_REPORT.md`.
   - Hostile review round 1 (7 fixes committed).
@@ -12,8 +12,8 @@
   - Task 2d: Thought signatures: opaque `provider_state` on `ToolUseBlock` & `TextBlock` (excluded from audit dump via `exclude=True`), unmangled by redaction, captured in `_from_gemini_response`, echoed on function calls in `_to_gemini_contents` (committed in 851232a).
   - Task 2e: Re-verified default Gemini model ID `gemini-3.8-flash` against official models docs; config-only.
   - Task 2f: Grepped tests for vacuous assertions (none found); proved `test_gemini_triage_redaction_and_audit_parity` non-vacuous by temporarily disabling redaction and showing failure.
-  - Task 3: Replaced `test_live_gemini_tiny_prompt` with opt-in `test_live_gemini_two_turn_tool_call` (2-turn round trip). Listed in `docs/RUNBOOK.md` as NOT YET RUN BY A HUMAN (no key in env).
+  - Task 3: Replaced `test_live_gemini_tiny_prompt` with opt-in `test_live_gemini_two_turn_tool_call` (2-turn round trip). Listed in `docs/RUNBOOK.md` as NOT YET RUN BY A HUMAN (committed in 51c06d1).
+  - Task 4: Regenerated hash-pinned `requirements.lock` including `google-genai` and complete transitive closure (82 packages, hashes from PyPI for all platforms); ran `pip-audit` (`No known vulnerabilities found`); verified clean venv install with `pip install --require-hashes -r requirements.lock`.
 - In progress / Next steps (in order per brief):
-  4. Regenerate hash-pinned `requirements.lock` including `google-genai` and all transitive dependencies (linux, windows, macOS Python 3.11), then run `pip-audit` and fix any findings.
   5. Update docs (`THREAT_MODEL.md`, `README.md`, `HOSTILE_REVIEW.md`, `VERIFICATION_LOG.md`, `COMPLETION_REPORT.md`). Note `# nosec B311` on backoff jitter and why it is acceptable.
   6. Final checks: ruff check, ruff format --check, mypy --strict, pytest --cov --cov-branch, bandit, pip-audit; push and confirm CI green.
