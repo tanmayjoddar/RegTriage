@@ -46,7 +46,7 @@ async def test_and_gate(dut: object) -> None:
         for b in (0, 1):
             dut.a.value = a  # type: ignore[attr-defined]
             dut.b.value = b  # type: ignore[attr-defined]
-            await Timer(1, unit="ns")
+            await Timer(1, units="ns")
             got = int(dut.y.value)  # type: ignore[attr-defined]
             assert got == (a & b), f"a={a} b={b} y={got}"
 """
