@@ -236,3 +236,42 @@ Sim logs routinely contain non-UTF-8 bytes (binary dumps, latin-1 tool banners).
 
 **Limitation:**
 Replacement is lossy: two different byte sequences can decode to the same string, so a fabricated citation could theoretically match after replacement when the raw bytes differ. For triage evidence this is acceptable (the validator still pins file, lines, and normalized text), but it is not a forensic-integrity guarantee.
+
+---
+
+## Slice 5: evidence validator + tests
+
+### 1. Why does the validator raise per-evidence errors instead of returning a boolean or a score?
+**Answer:**
+The agent loop's retry contract needs the *exact* failure reason ("lines 2-99 exceed file length 3", not "invalid") to feed back into the model for a second attempt. A boolean would force the agent to guess what was wrong; embedding `citation_kind`, `citation_ref`, and `reason` in a `ValidationError` makes the feedback precise and machine-routable. The validator therefore never returns "invalid" silently — it either returns `None` (accepted) or raises with the verdict attached, so "never silently drop or accept" holds by construction: every path either accepts loudly or rejects loudly.
+
+**Limitation:**
+Exception-driven flow means the agent must catch per item and continue; one malformed item cannot abort the batch. If the agent code forgets the try/except, a single bad citation kills the whole cluster diagnosis — the Slice 6 loop must be written (and tested) to isolate per-evidence failures.
+
+### 2. Why is an empty quote rejected even though `"" in window` is trivially true?
+**Answer:**
+An empty quote would validate against *any* line window, making the citation meaningless — a model could "support" any claim with zero text. The spec caps quotes at 200 chars but does not demand non-emptiness; I added the non-empty rule because a vacuous citation is exactly how fabricated evidence would sneak through a purely mechanical check. Whitespace-only quotes are normalized to empty first, then rejected, so padding cannot dodge the rule either.
+
+**Limitation:**
+This is my interpretation layered on the spec, and a strict reviewer could call it scope creep. I kept it because the failure mode it blocks (empty evidence accepted) directly contradicts the slice's "never silently accept" mandate — and it is pinned by `test_empty_quote_rejected`, so the behavior is visible, not hidden.
+
+### 3. Why does commit evidence use `<sha>:<path>` refs and check the diff text rather than file lines?
+**Answer:**
+A commit citation claims "this change is relevant", so the checkable artifact is the commit itself: the sha must exist (`git cat-file -e`), the path must be in that commit's touched-file list (`git show --name-only`), and the quote must appear in the commit's diff for that file. File line numbers are meaningless against a diff (hunk headers remap them), so `line_start/line_end` get only a sanity check (end ≥ start) for commit kind while the diff-substring check carries the weight. The `<sha>:<path>` encoding keeps the fixed 5-field Evidence schema instead of adding a sixth field just for commits.
+
+**Limitation:**
+The string-encoded ref is a mini-format that can be malformed (no colon, short sha, absolute path) — each shape needs its own rejection test, and there are now four. A dedicated `CommitRef` model with separate sha/path fields would be cleaner; I stayed with the spec's flat schema and documented the format in the Evidence docstring.
+
+### 4. Why does git failure distinguish "sha does not exist" from operational errors?
+**Answer:**
+`git cat-file -e` failing with a nonzero exit means the object is absent — a citation verdict. But a missing git binary or a timeout means the *checker* is broken, not the citation: reporting "sha does not exist" then would be a false verdict that sends the agent "fixing" a correct citation. So only `returncode is not None` converts to a rejection; otherwise the `ExecutionError` propagates as an operational failure for the agent loop to treat as a tool error (retry/abort), never as evidence feedback.
+
+**Limitation:**
+A corrupt repo where git exits nonzero for every query converts all commit evidence to "does not exist", which is still a possible misverdict. Distinguishing "object missing" (exit 128 + "bad object" on stderr) from "repo broken" would require parsing git's stderr, which is version-dependent text — I check the exit code only and accept this edge.
+
+### 5. Why must the validator decode with `errors="replace"`, and what breaks if it drifts?
+**Answer:**
+The read tools (Slice 4) decode with `errors="replace"`, so the quote the agent copies from tool output contains `U+FFFD` where the file had non-UTF-8 bytes. If the validator decoded strictly, every such quote would fail against the same bytes it came from — the pipeline would reject its own true evidence. The shared rule is pinned by `test_replace_decoding_matches_tools` (a `\xff\xfe` fixture validates), and the contract is a one-line comment in both modules pointing at each other.
+
+**Limitation:**
+Two engineers editing either module could change the rule in one place and break the contract silently — the test catches it, but only if the suite runs. A single shared `decode_log_bytes()` helper would enforce it structurally; I left the duplication because each module is currently small and the cross-pointing comments plus the test make drift loud rather than silent.

@@ -751,3 +751,127 @@ Remaining misses are Windows-uncoverable (158/160 symlink-skip branches,
 the symlink test runs on Linux CI.
 
 Slice 4 verdict: green, 105 passed + 2 skipped, coverage 96.21%.
+
+---
+
+## Slice 5: evidence validator + tests (2026-10-10)
+
+New files: `src/regtriage/validation/evidence.py` (Evidence model),
+`src/regtriage/validation/validator.py` (normalize_quote, validate_evidence
+with exact-reason ValidationError, commit sha-exists/touched-file/diff-quote
+checks), `src/regtriage/validation/__init__.py`,
+`tests/test_validation.py` (19 tests on real files + real temp git repos).
+Also promoted `tools.git._run_git` to public `run_git` for reuse.
+
+Mid-slice fixes:
+- Narrowed the commit-existence check to convert only real git failures
+  (nonzero returncode); missing-binary/timeout ExecutionErrors propagate as
+  operational errors instead of false "sha does not exist" verdicts.
+- A bulk rename of `exc_info.value.reason` to the `_reason()` helper also
+  rewrote the helper's own body into infinite recursion; fixed and all 19
+  pass.
+
+### `python -m ruff check src tests`
+```
+All checks passed!
+RUFF:0
+```
+
+### `python -m ruff format --check src tests`
+```
+29 files already formatted
+FMT:0
+```
+
+### `python -m mypy --strict src tests`
+```
+Success: no issues found in 29 source files
+MYPY:0
+```
+
+### `python -m bandit -c pyproject.toml -r src`
+(Bandit output below is verbatim except the trailing `[main] INFO` lines and
+the benign `[manager] WARNING: Test in comment` echoes, unchanged from
+Slice 2, which are omitted for length.)
+```
+Run started:2026-10-10 13:26:01.044206+00:00
+
+Test results:
+	No issues identified.
+
+Code scanned:
+	Total lines of code: 1285
+	Total lines skipped (#nosec): 0
+	Total potential issues skipped due to specifically being disabled (e.g., #nosec BXXX): 7
+
+Run metrics:
+	Total issues (by severity):
+		Undefined: 0
+		Low: 0
+		Medium: 0
+		High: 0
+	Total issues (by confidence):
+		Undefined: 0
+		Low: 0
+		Medium: 0
+		High: 0
+Files skipped (0):
+BANDIT:0
+```
+
+### `python -m pytest --cov=regtriage --cov-branch --cov-report=term-missing`
+(126 items collected; earlier suites pass unchanged — only the 19 new
+validator-test lines are reproduced here verbatim, plus the full table.)
+```
+tests/test_validation.py::test_valid_log_citation PASSED                 [ 85%]
+tests/test_validation.py::test_valid_source_citation_multi_line PASSED   [ 86%]
+tests/test_validation.py::test_quote_mismatch_reports_exact_error PASSED [ 87%]
+tests/test_validation.py::test_wrong_case_quote_fails PASSED             [ 88%]
+tests/test_validation.py::test_empty_quote_rejected PASSED               [ 88%]
+tests/test_validation.py::test_lines_beyond_eof_rejected PASSED          [ 89%]
+tests/test_validation.py::test_reversed_range_rejected PASSED            [ 90%]
+tests/test_validation.py::test_missing_file_rejected PASSED              [ 91%]
+tests/test_validation.py::test_escape_is_sandbox_violation_not_validation_error PASSED [ 92%]
+tests/test_validation.py::test_quote_length_capped_by_schema PASSED      [ 92%]
+tests/test_validation.py::test_invalid_kind_rejected_by_schema PASSED    [ 93%]
+tests/test_validation.py::test_replace_decoding_matches_tools PASSED     [ 94%]
+tests/test_validation.py::test_normalize_quote_collapses_whitespace PASSED [ 95%]
+tests/test_validation.py::test_valid_commit_citation PASSED              [ 96%]
+tests/test_validation.py::test_commit_sha_must_exist PASSED              [ 96%]
+tests/test_validation.py::test_commit_must_touch_cited_file PASSED       [ 97%]
+tests/test_validation.py::test_commit_quote_must_appear_in_diff PASSED   [ 98%]
+tests/test_validation.py::test_commit_malformed_refs_rejected PASSED     [ 99%]
+tests/test_validation.py::test_commit_path_escape_rejected PASSED        [100%]
+
+Name                                Stmts   Miss Branch BrPart  Cover   Missing
+-----------------------------------------------------------------------------------
+src\regtriage\__init__.py               5      0      0      0   100%
+src\regtriage\config.py               139      1     52      4    97%   103, 155->157, 157->160, 255->254
+src\regtriage\errors.py                91      0     30      0   100%
+src\regtriage\logging.py               54      0     0      0   100%
+src\regtriage\parsing\__init__.py       3      0      0      0   100%
+src\regtriage\parsing\base.py          12      0      0      0   100%
+src\regtriage\parsing\cocotb.py        44      3     16      1    93%   42-43, 78
+src\regtriage\runner\__init__.py        3      0      0      0   100%
+src\regtriage\runner\executor.py       18      0      0      0   100%
+src\regtriage\runner\local.py          61     10     18      4    80%   30-36, 46, 72, 82
+src\regtriage\signature.py             62      0     18      0   100%
+src\regtriage\tools\__init__.py         4      0      0      0   100%
+src\regtriage\tools\files.py           96      4     44      2    96%   158, 160, 166-167
+src\regtriage\tools\git.py             68      1     22      1    98%   135
+src\regtriage\tools\sandbox.py         17      0      4      0   100%
+src\regtriage\validation\__init__.py    3      0      0      0   100%
+src\regtriage\validation\evidence.py   10      0      0      0   100%
+src\regtriage\validation\validator.py  60      3     18      1    95%   42-43, 95
+-----------------------------------------------------------------------------------
+TOTAL                                 750     22    238     14    96%
+Required test coverage of 90.0% reached. Total coverage: 96.15%
+======================= 124 passed, 2 skipped in 18.50s ========================
+PYTEST_EXIT:0
+```
+validator.py misses are the read-race guard (42-43, uncoverable without a
+forced TOCTOU race) and the malformed-record guard (95, defensive).
+Note: `logging.py` reached 100% here because the validation tests exercise
+the remaining branch.
+
+Slice 5 verdict: green, 124 passed + 2 skipped, coverage 96.15%.

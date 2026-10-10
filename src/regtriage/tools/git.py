@@ -35,7 +35,7 @@ class CommitInfo(BaseModel):
     subject: str = ""
 
 
-def _run_git(root: Path, args: list[str], timeout_seconds: float) -> str:
+def run_git(root: Path, args: list[str], timeout_seconds: float) -> str:
     """Run one git argv list inside `root`; every call carries a timeout."""
     argv = ["git", "-C", str(root)] + args
     try:
@@ -79,7 +79,7 @@ def git_blame(
             violation_type="invalid_range",
         )
     resolved = resolve_within_root(root, path)
-    out = _run_git(
+    out = run_git(
         resolve_within_root(root, "."),
         ["blame", "--porcelain", "-L", f"{line_start},{line_end}", "--", str(resolved)],
         timeout_seconds,
@@ -124,7 +124,7 @@ def git_log(
     if path is not None:
         resolved = resolve_within_root(root, path)
         args += ["--", str(resolved)]
-    out = _run_git(resolved_root, args, timeout_seconds)
+    out = run_git(resolved_root, args, timeout_seconds)
     commits: list[CommitInfo] = []
     for record in out.split("\x1e"):
         record = record.strip("\n")
