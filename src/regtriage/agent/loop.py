@@ -10,6 +10,7 @@ from regtriage.agent.protocol import (
     ConversationMessage,
     LlmClient,
     LlmRequest,
+    LlmResponse,
     TextBlock,
     ToolResultBlock,
     ToolUseBlock,
@@ -47,6 +48,34 @@ _EMPTY_RESULT = "(empty result)"
 def _wrap_untrusted(text: str) -> str:
     """Delimit untrusted content so the model can tell data from instructions."""
     return f"{UNTRUSTED_OPEN}\n{text}\n{UNTRUSTED_CLOSE}"
+
+
+def _scrub_value(value: Any, scrubber: SecretRedactor) -> Any:
+    """Redact strings inside arbitrary JSON-ish structures, preserving types."""
+    if isinstance(value, str):
+        return scrubber.redact(value)
+    if isinstance(value, dict):
+        return {key: _scrub_value(item, scrubber) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_scrub_value(item, scrubber) for item in value]
+    return value
+
+
+def _scrub_response(response: LlmResponse, scrubber: SecretRedactor) -> LlmResponse:
+    """Return a copy safe to log and re-send: text redacted, tool args scrubbed.
+
+    Tools still execute with the ORIGINAL arguments (local execution); only
+    what leaves the machine — audit records and re-sent messages — is
+    scrubbed. Validation likewise uses the original submission.
+    """
+    blocks: list[TextBlock | ToolUseBlock] = []
+    for block in response.content:
+        if isinstance(block, TextBlock):
+            blocks.append(TextBlock(text=scrubber.redact(block.text)))
+        else:
+            scrubbed = _scrub_value(block.input, scrubber)
+            blocks.append(block.model_copy(update={"input": scrubbed}))
+    return response.model_copy(update={"content": blocks})
 
 
 def _failed_diagnosis(cluster: Cluster, reason: str) -> Diagnosis:
@@ -186,7 +215,8 @@ def triage_cluster(
             response = client.create_message(request)
         except AgentLoopError as exc:
             return _failed_diagnosis(cluster, f"LLM call failed: {exc}")
-        log_turn("response", response.model_dump())
+        scrubbed = _scrub_response(response, scrubber)
+        log_turn("response", scrubbed.model_dump())
         input_tokens += response.input_tokens
         output_tokens += response.output_tokens
         if input_tokens + output_tokens > config.token_ceiling:
@@ -239,7 +269,7 @@ def triage_cluster(
                     )
                 )
 
-        messages.append(ConversationMessage(role="assistant", content=list(response.content)))
+        messages.append(ConversationMessage(role="assistant", content=list(scrubbed.content)))
         if submits:
             for extra in submits[1:]:
                 results.append(

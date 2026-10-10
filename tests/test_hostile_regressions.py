@@ -5,12 +5,21 @@ Each test below reproduces a confirmed finding from the hostile review
 hole is back.
 """
 
+import json
+from pathlib import Path
+from typing import Any
+
 import pytest
 
-from regtriage.agent import LlmRequest, LlmResponse, ReplayClient
-from regtriage.agent.protocol import TextBlock
+from regtriage.agent import LlmRequest, LlmResponse, ReplayClient, triage_cluster
+from regtriage.agent.protocol import TextBlock, ToolUseBlock
+from regtriage.agent.tooling import SUBMIT_DIAGNOSIS
+from regtriage.audit import AuditLogger
+from regtriage.config import RegTriageConfig
 from regtriage.errors import AgentLoopError, BudgetExceeded
 from regtriage.eval.harness import MeteredClient
+from regtriage.parsing import Failure
+from regtriage.signature import Cluster
 
 
 def _request() -> LlmRequest:
@@ -162,3 +171,170 @@ def test_fix_3_lookalikes_untouched() -> None:
     assert redactor.redact("eyJ only two segments here") == "eyJ only two segments here"
     assert redactor.redact("passwords are hashed") == "passwords are hashed"
     assert redactor.redact('{"user": "bob"}') == '{"user": "bob"}'
+
+
+def _cluster_for(root: Path, message: str = "boom") -> Cluster:
+    return Cluster(
+        cluster_id="cluster-001",
+        signature="s",
+        members=[Failure(test="t", message=message, raw_excerpt="")],
+    )
+
+
+def _minimal_submit() -> dict[str, Any]:
+    return {
+        "cluster_id": "cluster-001",
+        "root_cause_summary": "x",
+        "confidence": 0.1,
+        "status": "failed",
+    }
+
+
+def test_probe_4_model_text_scrubbed_before_resend_and_audit(tmp_path: Path) -> None:
+    root = tmp_path / "ws"
+    root.mkdir()
+    (root / "sim.log").write_text("line one\n", encoding="utf-8")
+    leaked = "sk-ant-12345678901234567890123456789012"
+    script = [
+        LlmResponse(
+            content=[TextBlock(text=f"thinking about {leaked} here")],
+            stop_reason="end_turn",
+            input_tokens=1,
+            output_tokens=1,
+        ),
+        LlmResponse(
+            content=[ToolUseBlock(id="s1", name=SUBMIT_DIAGNOSIS, input=_minimal_submit())],
+            stop_reason="tool_use",
+            input_tokens=1,
+            output_tokens=1,
+        ),
+    ]
+    client = ReplayClient(script)
+    audit = AuditLogger(tmp_path / "audit.jsonl")
+    config = RegTriageConfig(workspace_root=root, model_id="m")
+    diagnosis = triage_cluster(
+        client=client,
+        config=config,
+        root=root,
+        cluster=_cluster_for(root),
+        audit=audit,
+    )
+    assert diagnosis.status == "failed"
+    assert leaked not in json.dumps([r.model_dump() for r in client.requests[1:]])
+    logged = (tmp_path / "audit.jsonl").read_text(encoding="utf-8")
+    assert leaked not in logged
+    assert "[REDACTED_ANTHROPIC_KEY]" in logged
+
+
+def test_fix_4_nested_inputs_scrubbed_types_kept(tmp_path: Path) -> None:
+    from regtriage.agent.loop import _scrub_response
+    from regtriage.logging import SecretRedactor
+
+    jwt = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c"
+    response = LlmResponse(
+        content=[
+            ToolUseBlock(
+                id="u1",
+                name="grep_source",
+                input={"pattern": jwt, "opts": ["a", 5, None, True], "nested": {"k": jwt}},
+            )
+        ],
+        stop_reason="tool_use",
+        input_tokens=0,
+        output_tokens=0,
+    )
+    scrubbed = _scrub_response(response, SecretRedactor())
+    (block,) = scrubbed.content
+    assert isinstance(block, ToolUseBlock)
+    assert jwt not in json.dumps(block.input)
+    assert block.input["opts"] == ["a", 5, None, True]
+    assert block.input["nested"]["k"] == "[REDACTED_JWT]"
+    (original,) = response.content
+    assert isinstance(original, ToolUseBlock)
+    assert original.input["pattern"] == jwt
+
+
+def test_fix_4_audit_matches_exactly_what_was_sent(tmp_path: Path) -> None:
+    root = tmp_path / "ws"
+    root.mkdir()
+    (root / "sim.log").write_text("line one\n", encoding="utf-8")
+    script = [
+        LlmResponse(
+            content=[TextBlock(text="note xoxb-1-abc here")],
+            stop_reason="end_turn",
+            input_tokens=2,
+            output_tokens=3,
+        ),
+        LlmResponse(
+            content=[ToolUseBlock(id="s1", name=SUBMIT_DIAGNOSIS, input=_minimal_submit())],
+            stop_reason="tool_use",
+            input_tokens=2,
+            output_tokens=3,
+        ),
+    ]
+    client = ReplayClient(script)
+    audit = AuditLogger(tmp_path / "audit.jsonl")
+    config = RegTriageConfig(workspace_root=root, model_id="m")
+    triage_cluster(client=client, config=config, root=root, cluster=_cluster_for(root), audit=audit)
+    records = [
+        json.loads(line)
+        for line in (tmp_path / "audit.jsonl").read_text(encoding="utf-8").splitlines()
+    ]
+    assert [r["kind"] for r in records] == ["request", "response", "request", "response"]
+    assert records[0]["payload"] == client.requests[0].model_dump(mode="json")
+    assert records[2]["payload"] == client.requests[1].model_dump(mode="json")
+    assert "xoxb-1-abc" not in json.dumps(records)
+    assert "[REDACTED_SLACK_TOKEN]" in json.dumps(records)
+
+
+def test_fix_4_hallucinated_secret_in_prose_scrubbed(tmp_path: Path) -> None:
+    root = tmp_path / "ws"
+    root.mkdir()
+    (root / "sim.log").write_text("line one\n", encoding="utf-8")
+    invented = "github_pat_" + "Q" * 40
+    script = [
+        LlmResponse(
+            content=[TextBlock(text=f"I recall the key {invented} from training")],
+            stop_reason="end_turn",
+            input_tokens=1,
+            output_tokens=1,
+        ),
+        LlmResponse(
+            content=[ToolUseBlock(id="s1", name=SUBMIT_DIAGNOSIS, input=_minimal_submit())],
+            stop_reason="tool_use",
+            input_tokens=1,
+            output_tokens=1,
+        ),
+    ]
+    client = ReplayClient(script)
+    config = RegTriageConfig(workspace_root=root, model_id="m")
+    triage_cluster(client=client, config=config, root=root, cluster=_cluster_for(root))
+    assert invented not in json.dumps(client.requests[1].model_dump())
+
+
+def test_probe_4_tool_input_scrubbed_in_echo_but_executed_raw(tmp_path: Path) -> None:
+    root = tmp_path / "ws"
+    root.mkdir()
+    shaped = "AKIAIOSFODNN7EXAMPLE"
+    (root / "sim.log").write_text(f"line one\nnote {shaped} here\n", encoding="utf-8")
+    script = [
+        LlmResponse(
+            content=[ToolUseBlock(id="u1", name="grep_source", input={"pattern": shaped})],
+            stop_reason="tool_use",
+            input_tokens=1,
+            output_tokens=1,
+        ),
+        LlmResponse(
+            content=[ToolUseBlock(id="s1", name=SUBMIT_DIAGNOSIS, input=_minimal_submit())],
+            stop_reason="tool_use",
+            input_tokens=1,
+            output_tokens=1,
+        ),
+    ]
+    client = ReplayClient(script)
+    config = RegTriageConfig(workspace_root=root, model_id="m")
+    triage_cluster(client=client, config=config, root=root, cluster=_cluster_for(root))
+    dumped = json.dumps(client.requests[1].model_dump())
+    assert shaped not in dumped
+    assert "sim.log" in dumped
+    assert "[REDACTED_AWS_KEY]" in dumped
