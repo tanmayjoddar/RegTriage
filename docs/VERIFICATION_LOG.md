@@ -1593,6 +1593,28 @@ Hardening: `@settings(deadline=None)` on the 3 property tests (they assert
 correctness, not speed) with an explanatory comment. No behavior change;
 Windows suite re-verified green after the edit.
 
+Update: the deadline theory was wrong — CI fix 4 (next section) found the
+deterministic cause (missing fixtures). The deadline hardening stays as
+cheap insurance, but it was not the fix.
+
+---
+
+## CI fix 4: gitignored fixtures (2026-10-10) — the actual killer
+
+Fresh-clone LF experiment in WSL reproduced it exactly: 6 failed, 224
+passed — `ParsingError: log file does not exist:
+.../tests/fixtures/uvm_pass.log`. The four Slice-10 `.log` fixtures were
+never committed: inherited `.gitignore` rule `*.log` (meant for sim output)
+silently swallowed them, and `git add tests/fixtures` added nothing new
+without warning. CI therefore ran the parser tests with no fixture files
+while Windows used the working-tree copies — green here, red there, for
+three straight runs. The dash-shim fix was real but latent, not the cause.
+
+Fix: `.gitignore` negates `!tests/fixtures/*.log` (fixtures are versioned
+test inputs); the 4 files are now tracked. Verified via a fresh `git clone`
+in WSL (files present) — see CI fix 3 setup. Lesson recorded in the commit:
+`git status --porcelain --ignored` is now part of the pre-push habit.
+
 ---
 
 ## CI fix 2: dash-incompatible sbatch shim (2026-10-10)

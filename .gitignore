@@ -6,6 +6,8 @@ coverage/
 *.log
 .env*
 !.env.example
+# Parser fixtures are versioned test inputs, not sim output.
+!tests/fixtures/*.log
 .venv/
 __pycache__/
 *.pyc

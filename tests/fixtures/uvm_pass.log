@@ -1,0 +1,3 @@
+# Sample clean UVM simulator log
+UVM_INFO @ 0: reporter [RNTST] Running test test_pcie_cfg ...
+UVM_INFO @ 100ns: reporter [RNTST] TEST PASSED

@@ -1,0 +1,6 @@
+# Sample UVM simulator log (pass + fail lines)
+UVM_INFO @ 0: reporter [RNTST] Running test test_pcie_cfg ...
+UVM_ERROR @ 120ns: uvm_test_top.env.scoreboard [SB] dma length mismatch at 0x40001000, got 0xDEAD want 0xBEEF
+UVM_INFO @ 130ns: reporter [RNTST] Continuing after error
+UVM_FATAL @ 200ns: uvm_test_top.env.driver [DRV] MSI-X table write timeout, aborting
+UVM_INFO @ 200ns: reporter [RNTST] Done

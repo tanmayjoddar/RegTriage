@@ -1,0 +1,4 @@
+# Sample Verilator lint output
+%Warning-UNUSEDSIGNAL: rtl/pcie_dma.v:42: Signal is not used: 'dbg_state'
+%Warning-WIDTH: rtl/pcie_dma.v:64: Operator ADD expects 32 bits, got 31 bits
+%Error: Exiting due to 2 warning(s)

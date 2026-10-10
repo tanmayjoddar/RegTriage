@@ -77,3 +77,16 @@ no stub bodies. Confirmed by inspection, not just grep.
     `detect-secrets audit` pending.
 12. Clean-install proof is Windows clean venv + Linux CI; no other platform
     verified.
+
+## Addendum (2026-10-10, post-audit CI failures)
+
+Runs #11–#14 failed in pytest on ubuntu while Windows stayed green. The
+audit's dead-code/grep sweep missed it because it was a *packaging* gap,
+not a code gap: the four Slice-10 `.log` fixtures were never committed
+(`*.log` gitignore rule), so CI ran 6 parser tests with no fixture files
+(reproduced exactly in WSL: 6 failed / 224 passed). Fixed with a
+`!tests/fixtures/*.log` negation; fixtures now tracked. A secondary latent
+defect found along the way (bash-only `${@: -1}` in a test shim vs dash)
+was also fixed and validated under `sh`. Lesson: the self-audit must
+include a fresh-clone file-presence check, not just grep sweeps — added to
+the pre-push habit in STATE.md. CI re-run pending at the time of writing.

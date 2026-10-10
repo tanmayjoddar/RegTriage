@@ -28,5 +28,11 @@
   230 passed/1 skipped TWICE — cannot reproduce; suspect hypothesis
   200ms deadlines on loaded runners. Hardened with deadline=None on the
   3 property tests. Pushing + polling.
+- CI FIX 4 (2026-10-10): REAL CAUSE found via fresh LF clone in WSL:
+  6 failed / 224 passed — the four Slice-10 `.log` fixtures were NEVER
+  COMMITTED (`*.log` gitignore swallowed them; `git add` warned nothing).
+  Fix-2 (dash) was real but latent. Fix: `!tests/fixtures/*.log` negation
+  + tracked fixtures. Deadline theory retracted in the log (hardening kept).
+  Pushing + polling CI.
 - Open issues: live LLM/sim/eval/INFRA runs NOT YET RUN; manual CSV empty;
   threshold unevaluated; platform-gated skips for Linux CI.
