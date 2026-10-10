@@ -1,13 +1,14 @@
 # RegTriage Run State (updated after every slice)
 
 - Last completed slice: 5 (evidence validator + tests)
-- CI FIX (2026-10-10, committed after slice 5): GitHub CI failed on the
+- CI FIX (2026-10-10, commit 28a75f3): GitHub CI failed on the
   last two commits at "Install dependencies from lockfile" (~9s, packaging
   failure, not code). Fixed: lockfile literal-`\n` continuations rewritten
   (863x), closure completed (colorama), pip-audit/pre-commit/detect-secrets
   added to pyproject + lockfile (28 entries), setuptools 66.1.1 -> 84.0.0
   (6 CVEs fixed, re-audit clean), pip-audit step added to CI. Real output
   in docs/VERIFICATION_LOG.md under "CI fix".
+  CI STATUS: run #3 (28a75f3) conclusion success — green.
 - Remote: https://github.com/tanmayjoddar/RegTriage.git (branch master).
   History carries tanmayjoddar <tanmayjoddar17@gmail.com>.
 - What is done:
